@@ -7,10 +7,13 @@ license.workspace = true
 [dependencies]
 async-trait.workspace = true
 camino.workspace = true
+gtk.workspace = true
+png.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+tray-icon.workspace = true
 glossa-app = { path = "../glossa-app" }
 glossa-core = { path = "../glossa-core" }
 
