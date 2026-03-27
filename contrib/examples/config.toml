@@ -1,0 +1,41 @@
+[input]
+backend = "portal"
+shortcut = "<Ctrl><Alt>space"
+mode = "toggle"
+
+[control]
+enable_cli = true
+socket_path = "auto"
+
+[provider]
+kind = "groq"
+base_url = "https://api.groq.com/openai/v1"
+model = "whisper-large-v3"
+api_key = "env:GROQ_API_KEY"
+
+[audio]
+work_dir = "auto"
+format = "wav"
+sample_rate_hz = 16000
+channels = 1
+trim_silence = true
+min_duration_ms = 150
+max_duration_sec = 120
+
+[paste]
+mode = "ctrl-shift-v"
+clipboard_command = "wl-copy"
+type_command = "dotool"
+
+[ui]
+tray = true
+idle_icon = "/home/glaicer/Development/glossa/contrib/assets/tray/idle.png"
+recording_icon = "/home/glaicer/Development/glossa/contrib/assets/tray/recording.png"
+processing_icon = "/home/glaicer/Development/glossa/contrib/assets/tray/processing.png"
+start_sound = "/home/glaicer/Development/glossa/contrib/assets/sounds/start.wav"
+stop_sound = "/home/glaicer/Development/glossa/contrib/assets/sounds/stop.wav"
+
+[logging]
+level = "info"
+journal = true
+file = false

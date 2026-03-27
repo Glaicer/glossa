@@ -1,0 +1,25 @@
+[package]
+name = "glossa-bin"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "glossa"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+camino.workspace = true
+clap.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+glossa-app = { path = "../glossa-app" }
+glossa-audio = { path = "../glossa-audio" }
+glossa-core = { path = "../glossa-core" }
+glossa-platform-linux = { path = "../glossa-platform-linux" }
+glossa-stt = { path = "../glossa-stt" }
+
+[lints]
+workspace = true

@@ -1,0 +1,46 @@
+[workspace]
+members = [
+    "crates/glossa-core",
+    "crates/glossa-app",
+    "crates/glossa-audio",
+    "crates/glossa-platform-linux",
+    "crates/glossa-stt",
+    "crates/glossa-bin",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+version = "0.1.0"
+
+[workspace.dependencies]
+anyhow = "=1.0.95"
+async-trait = "=0.1.83"
+camino = { version = "=1.1.9", features = ["serde1"] }
+clap = { version = "=4.5.21", features = ["derive"] }
+cpal = "0.15.3"
+hound = "3.5.1"
+reqwest = { version = "=0.12.9", default-features = false, features = ["json", "multipart", "rustls-tls"] }
+rodio = { version = "0.19.0", default-features = false, features = ["wav"] }
+serde = { version = "=1.0.215", features = ["derive"] }
+serde_json = "=1.0.133"
+thiserror = "=2.0.4"
+tokio = { version = "=1.41.1", features = ["fs", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
+toml = "=0.8.8"
+tracing = "0.1.41"
+tracing-subscriber = { version = "=0.3.19", features = ["env-filter", "fmt"] }
+uuid = { version = "=1.11.0", features = ["serde", "v4"] }
+ashpd = { version = "=0.8.1", default-features = false, features = ["tokio"] }
+tray-icon = "=0.17.0"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+unused_lifetimes = "warn"
+unused_qualifications = "warn"
+
+[workspace.lints.clippy]
+dbg_macro = "warn"
+todo = "warn"
+unwrap_used = "warn"
+unnecessary_wraps = "warn"

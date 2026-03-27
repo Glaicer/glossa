@@ -1,0 +1,16 @@
+[package]
+name = "glossa-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+camino.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+glossa-core = { path = "../glossa-core" }
+
+[lints]
+workspace = true
