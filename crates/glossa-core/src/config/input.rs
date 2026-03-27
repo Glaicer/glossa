@@ -22,6 +22,7 @@ pub enum InputMode {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InputConfig {
     pub backend: InputBackend,
+    #[serde(default)]
     pub shortcut: String,
     pub mode: InputMode,
 }
@@ -38,11 +39,6 @@ impl Default for InputConfig {
 
 impl InputConfig {
     pub(crate) fn validate(&self) -> Result<(), CoreError> {
-        if self.shortcut.trim().is_empty() {
-            return Err(CoreError::InvalidConfig(
-                "input.shortcut must not be empty".into(),
-            ));
-        }
         Ok(())
     }
 }

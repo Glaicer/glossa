@@ -1,41 +1,67 @@
 [input]
+# Selects the input backend that listens for recording commands; options: "portal", "none".
 backend = "portal"
-shortcut = "<Ctrl><Alt>space"
-mode = "toggle"
+# Selects how the portal shortcut behaves; options: "toggle", "push-to-talk".
+mode = "push-to-talk"
 
 [control]
+# Enables the CLI control channel used by commands like `glossa ctl toggle`; options: true, false.
 enable_cli = true
+# Sets the IPC socket path for daemon control; options: "auto" or an absolute Unix socket path.
 socket_path = "auto"
 
 [provider]
+# Selects the speech-to-text provider mode; options: "groq", "openai", "openai-compatible".
 kind = "groq"
+# Sets the provider base URL; options: provider-specific HTTPS base URL, required for "openai-compatible".
 base_url = "https://api.groq.com/openai/v1"
-model = "whisper-large-v3"
+# Selects the transcription model; options depend on provider, for example Groq: "whisper-large-v3", "whisper-large-v3-turbo"; OpenAI: "whisper-1", "gpt-4o-transcribe", "gpt-4o-mini-transcribe".
+model = "whisper-large-v3-turbo"
+# Sets the API key source or literal secret; options: "env:VARIABLE_NAME" or an explicit API key string.
 api_key = "env:GROQ_API_KEY"
 
 [audio]
+# Sets the working directory for temporary audio files; options: "auto" or an absolute directory path.
 work_dir = "auto"
+# Selects the recorded audio container format; options: "wav", "flac".
 format = "wav"
+# Sets the recording sample rate in Hz; options: positive integer values, typically 16000 for the MVP.
 sample_rate_hz = 16000
+# Sets the number of recording channels; options: positive integer values, typically 1 for mono.
 channels = 1
+# Enables trimming silence before transcription; options: true, false.
 trim_silence = true
+# Sets the minimum accepted recording duration in milliseconds; options: positive integer values.
 min_duration_ms = 150
+# Sets the maximum recording duration in seconds; options: positive integer values.
 max_duration_sec = 120
 
 [paste]
-mode = "ctrl-shift-v"
+# Selects which keyboard shortcut `dotool` should emulate for paste; options: "ctrl-v", "ctrl-shift-v", "shift-insert".
+mode = "shift-insert"
+# Sets the clipboard command used to place text into the Wayland clipboard; options: "wl-copy".
 clipboard_command = "wl-copy"
+# Sets the typing/paste emulation command; options: "dotool".
 type_command = "dotool"
 
 [ui]
+# Enables best-effort tray integration; options: true, false.
 tray = true
+# Sets the tray icon shown while idle; options: absolute path to an icon file.
 idle_icon = "/home/glaicer/Development/glossa/contrib/assets/tray/idle.png"
+# Sets the tray icon shown while recording; options: absolute path to an icon file.
 recording_icon = "/home/glaicer/Development/glossa/contrib/assets/tray/recording.png"
+# Sets the tray icon shown while processing; options: absolute path to an icon file.
 processing_icon = "/home/glaicer/Development/glossa/contrib/assets/tray/processing.png"
+# Sets the sound played when recording starts; options: absolute path to an audio file.
 start_sound = "/home/glaicer/Development/glossa/contrib/assets/sounds/start.wav"
+# Sets the sound played when recording stops; options: absolute path to an audio file.
 stop_sound = "/home/glaicer/Development/glossa/contrib/assets/sounds/stop.wav"
 
 [logging]
+# Sets the minimum log verbosity; options typically include "trace", "debug", "info", "warn", "error".
 level = "info"
+# Enables logging to journald; options: true, false.
 journal = true
+# Enables logging to a file sink when implemented; options: true, false.
 file = false

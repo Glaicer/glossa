@@ -29,9 +29,42 @@ mod tests {
     use super::*;
 
     #[test]
+    fn toggle_should_start_on_press() {
+        let command = map_portal_signal_to_command(InputMode::Toggle, PortalSignal::Activated);
+        assert!(matches!(
+            command,
+            Some(AppCommand::ToggleRecording {
+                origin: CommandOrigin::PortalShortcut,
+            })
+        ));
+    }
+
+    #[test]
+    fn toggle_should_ignore_release() {
+        let command = map_portal_signal_to_command(InputMode::Toggle, PortalSignal::Deactivated);
+        assert!(command.is_none());
+    }
+
+    #[test]
+    fn push_to_talk_should_start_on_press() {
+        let command = map_portal_signal_to_command(InputMode::PushToTalk, PortalSignal::Activated);
+        assert!(matches!(
+            command,
+            Some(AppCommand::StartRecording {
+                origin: CommandOrigin::PortalShortcut,
+            })
+        ));
+    }
+
+    #[test]
     fn push_to_talk_should_stop_on_release() {
         let command =
             map_portal_signal_to_command(InputMode::PushToTalk, PortalSignal::Deactivated);
-        assert!(matches!(command, Some(AppCommand::StopRecording { .. })));
+        assert!(matches!(
+            command,
+            Some(AppCommand::StopRecording {
+                origin: CommandOrigin::PortalShortcut,
+            })
+        ));
     }
 }

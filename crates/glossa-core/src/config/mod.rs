@@ -196,7 +196,7 @@ impl Default for AppConfig {
             },
             audio: AudioConfig::default(),
             paste: PasteConfig {
-                mode: PasteMode::CtrlShiftV,
+                mode: PasteMode::CtrlV,
                 clipboard_command: "wl-copy".into(),
                 type_command: "dotool".into(),
             },

@@ -13,9 +13,13 @@ pub struct Decision {
 
 /// Applies a command to the current state and returns the next state plus side effects.
 pub fn reduce(state: &AppState, command: &AppCommand) -> Result<Decision, CoreError> {
-    use AppCommand::{Shutdown, StartRecording, StopRecording, ToggleRecording};
+    use AppCommand::{Restart, Shutdown, StartRecording, StopRecording, ToggleRecording};
 
     let decision = match (state, command) {
+        (_, Restart { .. }) => Decision {
+            next_state: AppState::ShuttingDown,
+            actions: vec![Action::Restart],
+        },
         (_, Shutdown { .. }) => Decision {
             next_state: AppState::ShuttingDown,
             actions: vec![Action::Shutdown],
@@ -142,5 +146,21 @@ mod tests {
 
         assert!(matches!(decision.next_state, AppState::Processing(_)));
         assert_eq!(decision.actions.len(), 1);
+    }
+
+    #[test]
+    fn restart_should_request_shutdown_from_any_state() {
+        let decision = reduce(
+            &AppState::Recording(RecordingState {
+                session_id: Default::default(),
+            }),
+            &AppCommand::Restart {
+                origin: CommandOrigin::TrayMenu,
+            },
+        )
+        .expect("reducer should succeed");
+
+        assert!(matches!(decision.next_state, AppState::ShuttingDown));
+        assert_eq!(decision.actions, vec![super::Action::Restart]);
     }
 }

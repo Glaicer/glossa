@@ -14,6 +14,7 @@ pub enum TrayState {
 #[async_trait]
 pub trait TrayPort: Send + Sync {
     async fn set_state(&self, state: TrayState) -> Result<(), AppError>;
+    async fn set_shortcut_description(&self, description: Option<&str>) -> Result<(), AppError>;
     async fn show_error(&self, message: &str) -> Result<(), AppError>;
 }
 
@@ -24,6 +25,10 @@ pub struct NullTrayPort;
 #[async_trait]
 impl TrayPort for NullTrayPort {
     async fn set_state(&self, _state: TrayState) -> Result<(), AppError> {
+        Ok(())
+    }
+
+    async fn set_shortcut_description(&self, _description: Option<&str>) -> Result<(), AppError> {
         Ok(())
     }
 

@@ -47,6 +47,13 @@ pub struct AppActor {
     status_store: StatusStore,
 }
 
+/// Reason why the actor stopped processing commands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ActorExit {
+    Restart,
+    Shutdown,
+}
+
 impl AppActor {
     /// Creates a new actor plus the handle that external components can use.
     #[must_use]
@@ -70,7 +77,7 @@ impl AppActor {
     }
 
     /// Runs the actor until shutdown is requested.
-    pub async fn run(mut self) -> Result<(), AppError> {
+    pub async fn run(mut self) -> Result<ActorExit, AppError> {
         self.deps.temp_store.cleanup_stale_files().await?;
         self.set_tray_state(TrayState::Idle).await;
         self.publish_status();
@@ -81,8 +88,8 @@ impl AppActor {
                     let Some(command) = maybe_command else {
                         break;
                     };
-                    if self.handle_command(command).await? {
-                        break;
+                    if let Some(exit) = self.handle_command(command).await? {
+                        return Ok(exit);
                     }
                 }
                 maybe_event = self.internal_rx.recv() => {
@@ -94,10 +101,10 @@ impl AppActor {
             }
         }
 
-        Ok(())
+        Ok(ActorExit::Shutdown)
     }
 
-    async fn handle_command(&mut self, command: AppCommand) -> Result<bool, AppError> {
+    async fn handle_command(&mut self, command: AppCommand) -> Result<Option<ActorExit>, AppError> {
         info!(state = ?self.state.kind(), command = ?command, "received command");
         let decision = reduce(&self.state, &command)?;
         self.state = decision.next_state;
@@ -123,14 +130,18 @@ impl AppActor {
                 Action::Ignore { reason } => {
                     info!(reason, "ignored command");
                 }
+                Action::Restart => {
+                    self.shutdown().await?;
+                    return Ok(Some(ActorExit::Restart));
+                }
                 Action::Shutdown => {
                     self.shutdown().await?;
-                    return Ok(true);
+                    return Ok(Some(ActorExit::Shutdown));
                 }
             }
         }
 
-        Ok(false)
+        Ok(None)
     }
 
     async fn handle_internal_event(&mut self, event: InternalEvent) -> Result<(), AppError> {

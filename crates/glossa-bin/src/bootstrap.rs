@@ -49,9 +49,18 @@ pub fn init_tracing(config: &AppConfig) -> anyhow::Result<()> {
 }
 
 /// Builds the app actor and its dependencies from a validated config.
-pub fn build_actor(config: AppConfig) -> anyhow::Result<(AppActor, glossa_app::AppHandle)> {
-    let tray = Arc::new(BestEffortTrayPort::new(config.ui.clone()));
-    let tray_port: Arc<dyn TrayPort> = tray.clone();
+pub fn build_tray(config: &AppConfig) -> Arc<BestEffortTrayPort> {
+    Arc::new(BestEffortTrayPort::new(
+        config.ui.clone(),
+        config.input.clone(),
+    ))
+}
+
+/// Builds the app actor and its dependencies from a validated config.
+pub fn build_actor(
+    config: AppConfig,
+    tray: Arc<dyn TrayPort>,
+) -> anyhow::Result<(AppActor, glossa_app::AppHandle)> {
     let temp_store = Arc::new(XdgTempStore::from_audio_config(&config.audio)?);
     let deps = AppDependencies {
         audio_capture: Arc::new(CpalAudioCapture),
@@ -63,12 +72,10 @@ pub fn build_actor(config: AppConfig) -> anyhow::Result<(AppActor, glossa_app::A
         stt_client: build_client(&config)?,
         clipboard: Arc::new(WlCopyClipboard::new(config.paste.clipboard_command.clone())),
         paste: Arc::new(DotoolPasteBackend::new(config.paste.type_command.clone())),
-        tray: tray_port,
+        tray,
         temp_store,
     };
-    let (actor, handle) = AppActor::new(config, deps);
-    tray.bind_command_sender(handle.command_sender());
-    Ok((actor, handle))
+    Ok(AppActor::new(config, deps))
 }
 
 /// Resolves the IPC socket path from an optional config file.

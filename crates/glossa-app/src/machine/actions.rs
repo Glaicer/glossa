@@ -11,5 +11,6 @@ pub enum Action {
     PlayStartCue,
     PlayStopCue,
     Ignore { reason: &'static str },
+    Restart,
     Shutdown,
 }

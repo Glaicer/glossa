@@ -149,7 +149,17 @@ async fn paste_cycle(
     session_id: SessionId,
     text: &str,
 ) -> Result<CycleOutcome, AppError> {
+    info!(
+        %session_id,
+        text_len = text.len(),
+        "writing transcription to clipboard"
+    );
     deps.clipboard.set_text(text).await?;
+    info!(
+        %session_id,
+        paste_mode = ?deps.config.paste.mode,
+        "attempting paste via configured backend"
+    );
     match deps.paste.paste(deps.config.paste.mode).await {
         Ok(()) => Ok(CycleOutcome::Completed),
         Err(error) => Ok(CycleOutcome::CompletedWithWarning(format!(
