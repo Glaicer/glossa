@@ -15,11 +15,13 @@ use std::{
 use async_trait::async_trait;
 use camino::Utf8Path;
 use gtk::{
+    events_pending,
     gdk::{self, keys::constants as keyconst},
     glib::{translate::IntoGlib, Propagation},
+    init as gtk_init, main_iteration_do,
     prelude::*,
     Box as GtkBox, ButtonsType, Dialog, DialogFlags, Label, MessageDialog, MessageType,
-    Orientation, ResponseType, Window, events_pending, init as gtk_init, main_iteration_do,
+    Orientation, ResponseType, Window,
 };
 use png::{ColorType, Decoder};
 use tokio::sync::mpsc::UnboundedSender;
@@ -35,8 +37,8 @@ use glossa_app::{
 };
 use glossa_core::{AppCommand, CommandOrigin, InputBackend, InputConfig, InputMode, UiConfig};
 
-use crate::shortcut_capture::begin_shortcut_capture;
 use crate::portal::{portal_shortcut_description, PORTAL_APP_ID, PORTAL_SHORTCUT_ID};
+use crate::shortcut_capture::begin_shortcut_capture;
 
 const TRAY_THREAD_NAME: &str = "glossa-tray";
 
@@ -410,11 +412,10 @@ struct TrayIcons {
 
 impl TrayIcons {
     fn load(ui: &UiConfig) -> Result<Self, String> {
-        let processing_icon_path = ui.processing_icon.as_deref().unwrap_or(&ui.idle_icon);
         Ok(Self {
-            idle: load_icon(&ui.idle_icon)?,
-            recording: load_icon(&ui.recording_icon)?,
-            processing: load_icon(processing_icon_path)?,
+            idle: load_icon(ui.idle_tray_icon())?,
+            recording: load_icon(ui.recording_tray_icon())?,
+            processing: load_icon(ui.processing_tray_icon())?,
         })
     }
 }
@@ -600,10 +601,7 @@ fn write_shortcut_override(binding: &ShortcutBindingConfig, shortcut: &str) -> R
 
     let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
     if stderr.is_empty() {
-        Err(format!(
-            "dconf write failed with status {}",
-            output.status
-        ))
+        Err(format!("dconf write failed with status {}", output.status))
     } else {
         Err(format!("dconf write failed: {stderr}"))
     }

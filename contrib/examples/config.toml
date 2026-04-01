@@ -2,7 +2,7 @@
 # Selects the input backend that listens for recording commands; options: "portal", "none".
 backend = "portal"
 # Selects how the portal shortcut behaves; options: "toggle", "push-to-talk".
-mode = "push-to-talk"
+mode = "toggle"
 
 [control]
 # Enables the CLI control channel used by commands like `glossa ctl toggle`; options: true, false.
@@ -47,12 +47,20 @@ type_command = "dotool"
 [ui]
 # Enables best-effort tray integration; options: true, false.
 tray = true
+# Selects which tray icon set to use; options: "light", "dark".
+theme = "dark"
 # Sets the tray icon shown while idle; options: absolute path to an icon file.
 idle_icon = "/home/glaicer/Development/glossa/contrib/assets/tray/idle.png"
 # Sets the tray icon shown while recording; options: absolute path to an icon file.
 recording_icon = "/home/glaicer/Development/glossa/contrib/assets/tray/recording.png"
 # Sets the tray icon shown while processing; options: absolute path to an icon file.
 processing_icon = "/home/glaicer/Development/glossa/contrib/assets/tray/processing.png"
+# Sets the dark-theme tray icon shown while idle; options: absolute path to an icon file.
+idle_dark_icon = "/home/glaicer/Development/glossa/contrib/assets/tray/idle_dark.png"
+# Sets the dark-theme tray icon shown while recording; options: absolute path to an icon file.
+recording_dark_icon = "/home/glaicer/Development/glossa/contrib/assets/tray/recording_dark.png"
+# Sets the dark-theme tray icon shown while processing; options: absolute path to an icon file.
+processing_dark_icon = "/home/glaicer/Development/glossa/contrib/assets/tray/processing_dark.png"
 # Sets the sound played when recording starts; options: absolute path to an audio file.
 start_sound = "/home/glaicer/Development/glossa/contrib/assets/sounds/start.wav"
 # Sets the sound played when recording stops; options: absolute path to an audio file.

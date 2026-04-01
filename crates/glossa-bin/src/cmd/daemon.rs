@@ -42,8 +42,10 @@ pub async fn run(config_path: Option<std::path::PathBuf>) -> anyhow::Result<()> 
 
         if input_backend == InputBackend::Portal {
             let tx = handle.command_sender();
-            let source: Box<dyn CommandSource> =
-                Box::new(PortalShortcutSource::new(portal_config, Some(tray_port.clone())));
+            let source: Box<dyn CommandSource> = Box::new(PortalShortcutSource::new(
+                portal_config,
+                Some(tray_port.clone()),
+            ));
             tasks.push(tokio::spawn(async move {
                 if let Err(error) = source.run(tx).await {
                     error!(error = %error, "portal shortcut source exited with an error");

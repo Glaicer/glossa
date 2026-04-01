@@ -15,7 +15,7 @@ pub use self::input::{InputBackend, InputConfig, InputMode};
 pub use self::logging::{LogLevel, LoggingConfig};
 pub use self::paste::PasteConfig;
 pub use self::provider::ProviderConfig;
-pub use self::ui::UiConfig;
+pub use self::ui::{UiConfig, UiTheme};
 use crate::{AppStateKind, CoreError, PasteMode, ProviderKind};
 
 /// TOML-backed Glossa application configuration.

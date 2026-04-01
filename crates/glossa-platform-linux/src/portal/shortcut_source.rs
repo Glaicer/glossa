@@ -3,8 +3,8 @@ use std::{
     collections::HashMap,
     env, fs,
     path::PathBuf,
-    sync::Arc,
     sync::atomic::{AtomicU64, Ordering},
+    sync::Arc,
 };
 
 use ashpd::{
@@ -216,21 +216,19 @@ async fn create_session(
 ) -> Result<OwnedObjectPath, AppError> {
     let handle_token = next_token("request");
     let session_token = next_token("session");
-    let session_handle = portal_object_path(connection, "/org/freedesktop/portal/desktop/session", &session_token)?;
+    let session_handle = portal_object_path(
+        connection,
+        "/org/freedesktop/portal/desktop/session",
+        &session_token,
+    )?;
 
     let options = HashMap::from([
         ("handle_token", Value::from(handle_token.as_str())),
         ("session_handle_token", Value::from(session_token.as_str())),
     ]);
 
-    let _: HashMap<String, OwnedValue> = request_response(
-        connection,
-        proxy,
-        "CreateSession",
-        &handle_token,
-        &options,
-    )
-    .await?;
+    let _: HashMap<String, OwnedValue> =
+        request_response(connection, proxy, "CreateSession", &handle_token, &options).await?;
 
     Ok(session_handle)
 }
@@ -337,8 +335,11 @@ where
     B: serde::ser::Serialize + Type + std::fmt::Debug,
     R: for<'de> serde::Deserialize<'de> + Type,
 {
-    let request_path =
-        portal_object_path(connection, "/org/freedesktop/portal/desktop/request", handle_token)?;
+    let request_path = portal_object_path(
+        connection,
+        "/org/freedesktop/portal/desktop/request",
+        handle_token,
+    )?;
     let request_proxy = zbus::Proxy::new(
         connection,
         DESKTOP_DESTINATION,
@@ -351,25 +352,32 @@ where
             "failed to connect to portal request object for {method_name}: {error}"
         ))
     })?;
-    let mut response_stream = request_proxy.receive_signal("Response").await.map_err(|error| {
-        AppError::message(format!(
-            "failed to subscribe to portal {method_name} response: {error}"
-        ))
-    })?;
-
-    proxy.call_method(method_name, body).await.map_err(|error| {
-        AppError::message(format!("failed to call portal {method_name}: {error}"))
-    })?;
-
-    let message = response_stream.next().await.ok_or_else(|| {
-        AppError::message(format!("portal {method_name} request ended without a response"))
-    })?;
-    let (response_code, results): (u32, R) =
-        message.body().deserialize().map_err(|error| {
+    let mut response_stream = request_proxy
+        .receive_signal("Response")
+        .await
+        .map_err(|error| {
             AppError::message(format!(
-                "failed to decode portal {method_name} response: {error}"
+                "failed to subscribe to portal {method_name} response: {error}"
             ))
         })?;
+
+    proxy
+        .call_method(method_name, body)
+        .await
+        .map_err(|error| {
+            AppError::message(format!("failed to call portal {method_name}: {error}"))
+        })?;
+
+    let message = response_stream.next().await.ok_or_else(|| {
+        AppError::message(format!(
+            "portal {method_name} request ended without a response"
+        ))
+    })?;
+    let (response_code, results): (u32, R) = message.body().deserialize().map_err(|error| {
+        AppError::message(format!(
+            "failed to decode portal {method_name} response: {error}"
+        ))
+    })?;
 
     match response_code {
         0 => Ok(results),
@@ -413,7 +421,9 @@ fn extract_shortcuts(results: HashMap<String, OwnedValue>) -> Result<Vec<BoundSh
     let raw_shortcuts: Vec<(String, HashMap<String, OwnedValue>)> = shortcuts
         .try_clone()
         .and_then(TryInto::try_into)
-        .map_err(|error| AppError::message(format!("failed to decode portal shortcut list: {error}")))?;
+        .map_err(|error| {
+            AppError::message(format!("failed to decode portal shortcut list: {error}"))
+        })?;
 
     raw_shortcuts
         .into_iter()
@@ -423,7 +433,11 @@ fn extract_shortcuts(results: HashMap<String, OwnedValue>) -> Result<Vec<BoundSh
                 .ok_or_else(|| AppError::message("portal shortcut is missing trigger_description"))?
                 .try_clone()
                 .and_then(TryInto::try_into)
-                .map_err(|error| AppError::message(format!("failed to decode portal trigger description: {error}")))?;
+                .map_err(|error| {
+                    AppError::message(format!(
+                        "failed to decode portal trigger description: {error}"
+                    ))
+                })?;
 
             Ok(BoundShortcut {
                 id,
@@ -442,13 +456,21 @@ async fn register_host_app(connection: &zbus::Connection) -> Result<(), AppError
         HOST_REGISTRY_INTERFACE,
     )
     .await
-    .map_err(|error| AppError::message(format!("failed to connect to host portal registry: {error}")))?;
+    .map_err(|error| {
+        AppError::message(format!(
+            "failed to connect to host portal registry: {error}"
+        ))
+    })?;
 
     let options = HashMap::<String, Value<'_>>::new();
     registry
         .call_method("Register", &(PORTAL_APP_ID, options))
         .await
-        .map_err(|error| AppError::message(format!("failed to register portal app id {PORTAL_APP_ID}: {error}")))?;
+        .map_err(|error| {
+            AppError::message(format!(
+                "failed to register portal app id {PORTAL_APP_ID}: {error}"
+            ))
+        })?;
 
     info!(app_id = PORTAL_APP_ID, desktop_file = %desktop_file.display(), "registered host app identity for portals");
     Ok(())
