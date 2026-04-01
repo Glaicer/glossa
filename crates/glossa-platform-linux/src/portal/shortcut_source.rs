@@ -15,7 +15,7 @@ use ashpd::{
 };
 use async_trait::async_trait;
 use futures_util::StreamExt;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tokio::time::sleep;
 use tracing::{debug, info, warn};
 
@@ -109,7 +109,7 @@ impl PortalShortcutSource {
         })?;
         register_host_app(&connection).await?;
         let session = create_session(&connection, &proxy).await?;
-        ensure_shortcut_binding(
+        let trigger_description = ensure_shortcut_binding(
             &connection,
             &proxy,
             &session,
@@ -117,6 +117,34 @@ impl PortalShortcutSource {
             self.tray.as_deref(),
         )
         .await?;
+
+        let evdev_combo_keys = if self.config.mode == InputMode::PushToTalk {
+            if let Some(ref desc) = trigger_description {
+                match super::evdev_monitor::parse_accelerator_keys(desc) {
+                    Some(keys) => {
+                        info!(
+                            accelerator = desc.as_str(),
+                            key_count = keys.len(),
+                            "evdev release fallback enabled for push-to-talk"
+                        );
+                        Some(keys)
+                    }
+                    None => {
+                        warn!(
+                            accelerator = desc.as_str(),
+                            "could not parse accelerator for evdev fallback; \
+                             push-to-talk may not detect release for modifier combos"
+                        );
+                        None
+                    }
+                }
+            } else {
+                warn!("no trigger description available; evdev release fallback disabled");
+                None
+            }
+        } else {
+            None
+        };
 
         let mut activated = proxy.receive_signal("Activated").await.map_err(|error| {
             AppError::message(format!(
@@ -129,28 +157,70 @@ impl PortalShortcutSource {
             ))
         })?;
 
+        let mut ptt_active = false;
+        let mut evdev_rx: Option<oneshot::Receiver<()>> = None;
+
         loop {
-            tokio::select! {
-                signal = activated.next() => match signal {
-                    Some(signal) => {
-                        let (signal_session, shortcut_id, _, _): (OwnedObjectPath, String, u64, HashMap<String, OwnedValue>) =
-                            signal.body().deserialize().map_err(|error| {
-                                AppError::message(format!("failed to decode portal activation event: {error}"))
-                            })?;
-                        self.handle_signal(&session, &signal_session.as_ref(), &shortcut_id, PortalSignal::Activated, tx)?;
-                    }
-                    None => return Err(AppError::message("portal activation stream ended unexpectedly")),
-                },
-                signal = deactivated.next() => match signal {
-                    Some(signal) => {
-                        let (signal_session, shortcut_id, _, _): (OwnedObjectPath, String, u64, HashMap<String, OwnedValue>) =
-                            signal.body().deserialize().map_err(|error| {
-                                AppError::message(format!("failed to decode portal deactivation event: {error}"))
-                            })?;
-                        self.handle_signal(&session, &signal_session.as_ref(), &shortcut_id, PortalSignal::Deactivated, tx)?;
-                    }
-                    None => return Err(AppError::message("portal deactivation stream ended unexpectedly")),
-                },
+            if self.config.mode == InputMode::PushToTalk && ptt_active {
+                tokio::select! {
+                    biased;
+                    signal = deactivated.next() => match signal {
+                        Some(signal) => {
+                            ptt_active = false;
+                            evdev_rx = None; // cancel evdev monitor
+                            let (signal_session, shortcut_id, _, _): (OwnedObjectPath, String, u64, HashMap<String, OwnedValue>) =
+                                signal.body().deserialize().map_err(|error| {
+                                    AppError::message(format!("failed to decode portal deactivation event: {error}"))
+                                })?;
+                            self.handle_signal(&session, &signal_session.as_ref(), &shortcut_id, PortalSignal::Deactivated, tx)?;
+                        }
+                        None => return Err(AppError::message("portal deactivation stream ended unexpectedly")),
+                    },
+                    _ = async {
+                        match evdev_rx.as_mut() {
+                            Some(rx) => rx.await.ok(),
+                            None => std::future::pending().await,
+                        }
+                    } => {
+                        debug!("evdev fallback detected key release; synthesising StopRecording");
+                        ptt_active = false;
+                        evdev_rx = None;
+                        let cmd = map_portal_signal_to_command(self.config.mode, PortalSignal::Deactivated);
+                        if let Some(cmd) = cmd {
+                            let _ = tx.send(cmd);
+                        }
+                    },
+                    _ = activated.next() => {}
+                }
+            } else {
+                tokio::select! {
+                    signal = activated.next() => match signal {
+                        Some(signal) => {
+                            let (signal_session, shortcut_id, _, _): (OwnedObjectPath, String, u64, HashMap<String, OwnedValue>) =
+                                signal.body().deserialize().map_err(|error| {
+                                    AppError::message(format!("failed to decode portal activation event: {error}"))
+                                })?;
+                            self.handle_signal(&session, &signal_session.as_ref(), &shortcut_id, PortalSignal::Activated, tx)?;
+                            if self.config.mode == InputMode::PushToTalk {
+                                ptt_active = true;
+                                if let Some(ref keys) = evdev_combo_keys {
+                                    evdev_rx = Some(super::evdev_monitor::spawn_release_monitor(keys.clone()));
+                                }
+                            }
+                        }
+                        None => return Err(AppError::message("portal activation stream ended unexpectedly")),
+                    },
+                    signal = deactivated.next() => match signal {
+                        Some(signal) => {
+                            let (signal_session, shortcut_id, _, _): (OwnedObjectPath, String, u64, HashMap<String, OwnedValue>) =
+                                signal.body().deserialize().map_err(|error| {
+                                    AppError::message(format!("failed to decode portal deactivation event: {error}"))
+                                })?;
+                            self.handle_signal(&session, &signal_session.as_ref(), &shortcut_id, PortalSignal::Deactivated, tx)?;
+                        }
+                        None => return Err(AppError::message("portal deactivation stream ended unexpectedly")),
+                    },
+                }
             }
         }
     }
@@ -280,7 +350,7 @@ async fn ensure_shortcut_binding(
     session: &OwnedObjectPath,
     mode: InputMode,
     tray: Option<&dyn TrayPort>,
-) -> Result<(), AppError> {
+) -> Result<Option<String>, AppError> {
     let shortcut = NewShortcut::new(PORTAL_SHORTCUT_ID, portal_shortcut_description(mode));
     let existing = list_shortcuts(connection, proxy, session).await?;
     let effective = if existing
@@ -309,6 +379,8 @@ async fn ensure_shortcut_binding(
             mode = ?mode,
             "portal shortcut is active"
         );
+
+        Ok(Some(bound.trigger_description().to_owned()))
     } else {
         if let Some(tray) = tray {
             let _ = tray.set_shortcut_description(None).await;
@@ -319,9 +391,9 @@ async fn ensure_shortcut_binding(
             session_handle = %session.as_str(),
             "portal session is active but no shortcut with the configured id is bound"
         );
-    }
 
-    Ok(())
+        Ok(None)
+    }
 }
 
 async fn request_response<B, R>(

@@ -1,3 +1,4 @@
+mod evdev_monitor;
 mod mapping;
 mod shortcut_source;
 

@@ -2,7 +2,7 @@
 # Selects the input backend that listens for recording commands; options: "portal", "none".
 backend = "portal"
 # Selects how the portal shortcut behaves; options: "toggle", "push-to-talk".
-mode = "toggle"
+mode = "push-to-talk"
 
 [control]
 # Enables the CLI control channel used by commands like `glossa ctl toggle`; options: true, false.
