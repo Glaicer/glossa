@@ -31,6 +31,8 @@ sample_rate_hz = 16000
 channels = 1
 # Enables trimming silence before transcription; options: true, false.
 trim_silence = true
+# Sets the absolute amplitude threshold for silence detection; options: 0–32767 (i16 range), higher values trim more aggressively (cut more noise). Default: 500.
+trim_threshold = 500
 # Sets the minimum accepted recording duration in milliseconds; options: positive integer values.
 min_duration_ms = 150
 # Sets the maximum recording duration in seconds; options: positive integer values.

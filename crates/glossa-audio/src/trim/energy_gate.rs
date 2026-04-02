@@ -12,6 +12,14 @@ pub struct WavSilenceTrimmer {
     threshold: i16,
 }
 
+impl WavSilenceTrimmer {
+    pub fn new(threshold: u16) -> Self {
+        Self {
+            threshold: threshold as i16,
+        }
+    }
+}
+
 impl Default for WavSilenceTrimmer {
     fn default() -> Self {
         Self { threshold: 500 }

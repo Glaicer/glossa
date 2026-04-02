@@ -64,7 +64,7 @@ pub fn build_actor(
     let temp_store = Arc::new(XdgTempStore::from_audio_config(&config.audio)?);
     let deps = AppDependencies {
         audio_capture: Arc::new(CpalAudioCapture),
-        trimmer: Arc::new(WavSilenceTrimmer::default()),
+        trimmer: Arc::new(WavSilenceTrimmer::new(config.audio.trim_threshold)),
         cue_player: Arc::new(RodioCuePlayer::new(
             config.ui.start_sound.clone(),
             config.ui.stop_sound.clone(),

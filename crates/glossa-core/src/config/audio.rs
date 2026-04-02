@@ -11,6 +11,7 @@ pub struct AudioConfig {
     pub sample_rate_hz: u32,
     pub channels: u16,
     pub trim_silence: bool,
+    pub trim_threshold: u16,
     pub min_duration_ms: u64,
     pub max_duration_sec: u32,
 }
@@ -23,6 +24,7 @@ impl Default for AudioConfig {
             sample_rate_hz: 16_000,
             channels: 1,
             trim_silence: true,
+            trim_threshold: 500,
             min_duration_ms: 150,
             max_duration_sec: 120,
         }
