@@ -23,5 +23,5 @@ Cargo.lock
 .serena/
 skills-lock.json
 
-AGENTS.md
-ARCHITECTURE.md
+#AGENTS.md
+#ARCHITECTURE.md
