@@ -33,6 +33,12 @@ impl ProviderConfig {
                 ));
             }
         }
+        if self.kind != ProviderKind::OpenAiCompatible && matches!(self.api_key, SecretSource::Empty)
+        {
+            return Err(CoreError::InvalidConfig(
+                "provider.api_key must not be empty unless kind is openai-compatible".into(),
+            ));
+        }
         let _ = self.api_key.describe();
         Ok(())
     }

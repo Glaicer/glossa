@@ -123,6 +123,7 @@ pub enum AutoValue {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
 pub enum SecretSource {
+    Empty,
     Literal(String),
     Env(String),
 }
@@ -132,6 +133,7 @@ impl SecretSource {
     #[must_use]
     pub fn describe(&self) -> String {
         match self {
+            Self::Empty => "empty".into(),
             Self::Literal(_) => "literal".into(),
             Self::Env(name) => format!("env:{name}"),
         }
@@ -140,6 +142,7 @@ impl SecretSource {
     /// Resolves the secret into a string value.
     pub fn resolve(&self) -> Result<String, CoreError> {
         match self {
+            Self::Empty => Ok(String::new()),
             Self::Literal(value) => Ok(value.clone()),
             Self::Env(name) => env::var(name).map_err(|_| CoreError::MissingSecret {
                 secret_source: format!("env:{name}"),
@@ -162,9 +165,7 @@ impl TryFrom<String> for SecretSource {
         }
 
         if value.is_empty() {
-            return Err(CoreError::InvalidConfig(
-                "provider.api_key must not be empty".into(),
-            ));
+            return Ok(Self::Empty);
         }
 
         Ok(Self::Literal(value))
@@ -174,6 +175,7 @@ impl TryFrom<String> for SecretSource {
 impl From<SecretSource> for String {
     fn from(value: SecretSource) -> Self {
         match value {
+            SecretSource::Empty => String::new(),
             SecretSource::Literal(inner) => inner,
             SecretSource::Env(inner) => format!("env:{inner}"),
         }
@@ -250,6 +252,47 @@ mod tests {
     }
 
     #[test]
+    fn secret_source_should_accept_empty_literal() {
+        let source =
+            SecretSource::try_from(String::new()).expect("empty secret should parse");
+        assert_eq!(source, SecretSource::Empty);
+        assert_eq!(source.describe(), "empty");
+        assert_eq!(source.resolve().expect("empty secret should resolve"), "");
+    }
+
+    #[test]
+    fn openai_compatible_should_allow_empty_api_key() {
+        let config = AppConfig {
+            provider: ProviderConfig {
+                kind: ProviderKind::OpenAiCompatible,
+                base_url: Some("https://example.com/openai/v1".into()),
+                model: "whisper-1".into(),
+                api_key: SecretSource::Empty,
+            },
+            ..AppConfig::default()
+        };
+
+        assert!(config.validate().is_ok());
+        assert_eq!(config.resolve_api_key().expect("empty secret should resolve"), "");
+    }
+
+    #[test]
+    fn groq_should_reject_empty_api_key() {
+        let config = AppConfig {
+            provider: ProviderConfig {
+                kind: ProviderKind::Groq,
+                base_url: Some("https://api.groq.com/openai/v1".into()),
+                model: "whisper-large-v3".into(),
+                api_key: SecretSource::Empty,
+            },
+            ..AppConfig::default()
+        };
+
+        let error = config.validate().expect_err("validation should fail");
+        assert!(error.to_string().contains("api_key"));
+    }
+
+    #[test]
     fn config_should_reject_flac_until_supported() {
         let config = AppConfig {
             audio: AudioConfig {
@@ -288,6 +331,7 @@ format = "wav"
 sample_rate_hz = 16000
 channels = 1
 trim_silence = true
+trim_threshold = 500
 min_duration_ms = 150
 max_duration_sec = 120
 
