@@ -22,15 +22,15 @@ I personally recommend using [Groq](https://groq.com/) as it offers the followin
 - Easily configurable via `config.toml`.
 - Pastes using standard clipboard shortcuts such as `Ctrl+V`, `Ctrl+Shift+V`, or `Shift+Insert`, which helps with non-English input without switching keyboard layouts.
 
-## Installation (under development)
+## Installation
 
-`sudo curl <link_to_install.sh> | bash`
+Run the interactive installer:
 
-- install required dependencies such as `wl-copy` and `dotool`
-- install Glossa itself
-- create a systemd user service so it starts automatically
+`bash <(curl -fsSL https://raw.githubusercontent.com/Glaicer/glossa/main/install.sh)`
 
-You may need to log out and back in before `dotool` works properly.
+The script will automatically install runtime dependencies if missing and configure Glossa via terminal interface.
+
+You may need to log out and back in before paste works if `dotool` was installed during the script run.
 
 ## Why I built this
 

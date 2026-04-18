@@ -1,11 +1,12 @@
 [Unit]
 Description=glossa user-session daemon
 PartOf=graphical-session.target
-After=graphical-session.target
+After=graphical-session.target dotool.service
+Wants=dotool.service
 
 [Service]
 Type=simple
-ExecStart=%h/.cargo/bin/glossa daemon --config %h/.config/glossa/config.toml
+ExecStart=%h/.local/bin/glossa daemon --config %h/.config/glossa/config.toml
 Restart=on-failure
 RestartSec=2
 
