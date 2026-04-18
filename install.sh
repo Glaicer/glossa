@@ -92,7 +92,7 @@ confirm_continue() {
   log
   log "This script will:"
   log "- verify that you are running GNOME on Wayland"
-  log "- install runtime dependencies such as wl-clipboard and dotool if missing"
+  log "- install runtime dependencies such as wl-clipboard, libxdo3, and dotool if missing"
   log "- download the latest Glossa release bundle from GitHub"
   log "- create ~/.config/glossa/config.toml and systemd user services"
   log
@@ -214,6 +214,19 @@ ensure_wl_copy() {
 
   "${wl_copy_path}" --version >/dev/null 2>&1 \
     || die "wl-copy is installed at ${wl_copy_path}, but 'wl-copy --version' failed."
+}
+
+ensure_libxdo3() {
+  if dpkg-query -W -f='${Status}' libxdo3 2>/dev/null | grep -Fq "install ok installed"; then
+    return 0
+  fi
+
+  log "libxdo3 was not found. Installing it via apt-get."
+  sudo apt-get update
+  sudo apt-get install -y libxdo3
+
+  dpkg-query -W -f='${Status}' libxdo3 2>/dev/null | grep -Fq "install ok installed" \
+    || die "libxdo3 is still unavailable after installing it."
 }
 
 dotool_bundle_ready() {
@@ -694,6 +707,7 @@ main() {
   assert_wayland
   systemctl --user --version >/dev/null 2>&1 || die "systemctl --user is not available in this session."
   ensure_wl_copy
+  ensure_libxdo3
   download_and_install_glossa
   maybe_generate_config
   write_dotool_service
