@@ -384,7 +384,7 @@ cargo clippy --workspace             # lint all crates
 cargo test --workspace               # run all tests
 
 # Run daemon
-glossa daemon --config contrib/examples/config.toml
+glossa --config contrib/examples/config.toml daemon
 
 # Control
 glossa ctl toggle
@@ -395,7 +395,7 @@ glossa doctor
 
 Systemd user service: `contrib/systemd/glossa.service`
 ```ini
-ExecStart=%h/.cargo/bin/glossa daemon --config %h/.config/glossa/config.toml
+ExecStart=%h/.cargo/bin/glossa --config %h/.config/glossa/config.toml daemon
 ```
 
 ---
@@ -417,4 +417,3 @@ ExecStart=%h/.cargo/bin/glossa daemon --config %h/.config/glossa/config.toml
 - Multiple microphones with UI switching
 - Restore clipboard after pasting
 - FLAC recording format (schema exists, implementation pending)
-

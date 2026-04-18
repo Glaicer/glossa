@@ -7,7 +7,7 @@ use clap::{Parser, Subcommand};
 #[command(name = "glossa", about = "Speech-to-text daemon for GNOME Wayland")]
 pub struct Cli {
     /// Path to the TOML configuration file.
-    #[arg(long)]
+    #[arg(long, global = true)]
     pub config: Option<PathBuf>,
 
     #[command(subcommand)]
@@ -31,4 +31,37 @@ pub enum Command {
 pub enum CtlCommand {
     Toggle,
     Shutdown,
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::Parser;
+
+    use super::Cli;
+
+    #[test]
+    fn config_flag_after_subcommand_should_parse() {
+        let cli = Cli::try_parse_from([
+            "glossa",
+            "daemon",
+            "--config",
+            "/tmp/glossa.toml",
+        ])
+        .expect("config flag after daemon subcommand should parse");
+
+        assert_eq!(cli.config.as_deref(), Some(std::path::Path::new("/tmp/glossa.toml")));
+    }
+
+    #[test]
+    fn config_flag_before_subcommand_should_parse() {
+        let cli = Cli::try_parse_from([
+            "glossa",
+            "--config",
+            "/tmp/glossa.toml",
+            "daemon",
+        ])
+        .expect("config flag before daemon subcommand should parse");
+
+        assert_eq!(cli.config.as_deref(), Some(std::path::Path::new("/tmp/glossa.toml")));
+    }
 }

@@ -625,7 +625,7 @@ Wants=dotool.service
 
 [Service]
 Type=simple
-ExecStart=%h/.local/bin/glossa daemon --config %h/.config/glossa/config.toml
+ExecStart=%h/.local/bin/glossa --config %h/.config/glossa/config.toml daemon
 Restart=on-failure
 RestartSec=2
 
