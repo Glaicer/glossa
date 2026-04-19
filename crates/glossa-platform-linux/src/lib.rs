@@ -6,6 +6,7 @@ pub mod doctor;
 pub mod ipc;
 pub mod paste;
 pub mod portal;
+pub(crate) mod service;
 pub(crate) mod shortcut_capture;
 pub mod temp;
 pub mod tray;

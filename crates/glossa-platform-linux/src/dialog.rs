@@ -1,7 +1,5 @@
 use gtk::{
-    init as gtk_init,
-    prelude::*,
-    ButtonsType, DialogFlags, MessageDialog, MessageType, Window,
+    init as gtk_init, prelude::*, ButtonsType, DialogFlags, MessageDialog, MessageType, Window,
 };
 
 #[derive(Debug)]

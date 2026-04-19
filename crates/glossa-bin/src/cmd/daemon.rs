@@ -22,7 +22,7 @@ async fn run_inner(config_path: Option<std::path::PathBuf>) -> anyhow::Result<()
     let mut config = load_config(&config_path).await?;
     init_tracing(&config)?;
     info!(path = %config_path.display(), "starting glossa daemon");
-    let tray = build_tray(&config);
+    let tray = build_tray(&config_path, &config);
 
     loop {
         let socket_path = config
@@ -138,11 +138,9 @@ mod tests {
         let messages = messages.lock().expect("mutex should not be poisoned");
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].0, "Glossa fatal error");
-        assert!(
-            messages[0]
-                .1
-                .contains("missing secret value from env:GROQ_API_KEY")
-        );
+        assert!(messages[0]
+            .1
+            .contains("missing secret value from env:GROQ_API_KEY"));
     }
 
     #[tokio::test]
@@ -167,10 +165,9 @@ mod tests {
 
     #[tokio::test]
     async fn handle_fatal_daemon_result_should_return_ok_when_reporter_fails() {
-        let result = handle_fatal_daemon_result(
-            Err(anyhow!("fatal startup error")),
-            |_, _| Err("gtk unavailable".to_owned()),
-        )
+        let result = handle_fatal_daemon_result(Err(anyhow!("fatal startup error")), |_, _| {
+            Err("gtk unavailable".to_owned())
+        })
         .await;
 
         assert!(result.is_ok());

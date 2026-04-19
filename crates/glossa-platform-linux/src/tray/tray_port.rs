@@ -35,12 +35,16 @@ use glossa_app::{
     ports::{TrayPort, TrayState},
     AppError,
 };
-use glossa_core::{AppCommand, CommandOrigin, InputBackend, InputConfig, InputMode, UiConfig};
+use glossa_core::{AppCommand, AppConfig, CommandOrigin, InputBackend, InputMode, UiConfig};
 
 use crate::dialog::show_message_dialog;
 use crate::portal::{portal_shortcut_description, PORTAL_APP_ID, PORTAL_SHORTCUT_ID};
+use crate::service::restart_glossa_service;
 use crate::shortcut_capture::begin_shortcut_capture;
 use crate::updater::{check_for_update, install_update, UpdaterStatus};
+
+use super::settings::{write_settings_to_config, SettingsValues};
+use super::settings_dialog::edit_settings;
 
 const TRAY_THREAD_NAME: &str = "glossa-tray";
 
@@ -49,6 +53,8 @@ pub struct BestEffortTrayPort {
     enabled: bool,
     ui: UiConfig,
     shortcut_binding: Option<ShortcutBindingConfig>,
+    settings: SettingsValues,
+    config_path: PathBuf,
     app_command_tx: std::sync::Arc<Mutex<Option<UnboundedSender<AppCommand>>>>,
     command_tx: Mutex<Option<mpsc::Sender<TrayCommand>>>,
     thread_handle: Mutex<Option<thread::JoinHandle<()>>>,
@@ -57,16 +63,18 @@ pub struct BestEffortTrayPort {
 
 impl BestEffortTrayPort {
     #[must_use]
-    pub fn new(ui: UiConfig, input: InputConfig) -> Self {
+    pub fn new(config_path: PathBuf, config: &AppConfig) -> Self {
         Self {
-            enabled: ui.tray,
-            ui,
-            shortcut_binding: (input.backend == InputBackend::Portal).then_some(
+            enabled: config.ui.tray,
+            ui: config.ui.clone(),
+            shortcut_binding: (config.input.backend == InputBackend::Portal).then_some(
                 ShortcutBindingConfig {
                     current_shortcut: None,
-                    mode: input.mode,
+                    mode: config.input.mode,
                 },
             ),
+            settings: SettingsValues::from_config(config),
+            config_path,
             app_command_tx: std::sync::Arc::new(Mutex::new(None)),
             command_tx: Mutex::new(None),
             thread_handle: Mutex::new(None),
@@ -114,11 +122,21 @@ impl BestEffortTrayPort {
 
         let ui = self.ui.clone();
         let shortcut_binding = self.shortcut_binding.clone();
+        let settings = self.settings.clone();
+        let config_path = self.config_path.clone();
         let app_command_tx = self.app_command_tx.clone();
         let handle = match thread::Builder::new()
             .name(TRAY_THREAD_NAME.into())
-            .spawn(move || run_tray_thread(ui, shortcut_binding, app_command_tx, command_rx))
-        {
+            .spawn(move || {
+                run_tray_thread(
+                    ui,
+                    shortcut_binding,
+                    settings,
+                    config_path,
+                    app_command_tx,
+                    command_rx,
+                )
+            }) {
             Ok(handle) => handle,
             Err(error) => {
                 warn!(error = %error, "failed to spawn tray thread");
@@ -211,6 +229,8 @@ impl TrayCommand {
 fn run_tray_thread(
     ui: UiConfig,
     shortcut_binding: Option<ShortcutBindingConfig>,
+    settings: SettingsValues,
+    config_path: PathBuf,
     app_command_tx: std::sync::Arc<Mutex<Option<UnboundedSender<AppCommand>>>>,
     command_rx: mpsc::Receiver<TrayCommand>,
 ) {
@@ -219,13 +239,14 @@ fn run_tray_thread(
         return;
     }
 
-    let runtime = match TrayRuntime::new(&ui, shortcut_binding, app_command_tx) {
-        Ok(runtime) => runtime,
-        Err(error) => {
-            warn!(error = %error, "failed to create tray icon");
-            return;
-        }
-    };
+    let runtime =
+        match TrayRuntime::new(&ui, shortcut_binding, settings, config_path, app_command_tx) {
+            Ok(runtime) => runtime,
+            Err(error) => {
+                warn!(error = %error, "failed to create tray icon");
+                return;
+            }
+        };
 
     info!("tray icon initialized");
     loop {
@@ -260,10 +281,13 @@ fn pump_gtk_events() {
 struct TrayRuntime {
     _tray_icon: TrayIcon,
     change_shortcut_id: Option<tray_icon::menu::MenuId>,
+    settings_id: tray_icon::menu::MenuId,
     update_id: tray_icon::menu::MenuId,
     exit_id: tray_icon::menu::MenuId,
     icons: TrayIcons,
     shortcut_binding: RefCell<Option<ShortcutBindingConfig>>,
+    settings: RefCell<SettingsValues>,
+    config_path: PathBuf,
     app_command_tx: std::sync::Arc<Mutex<Option<UnboundedSender<AppCommand>>>>,
 }
 
@@ -271,6 +295,8 @@ impl TrayRuntime {
     fn new(
         ui: &UiConfig,
         shortcut_binding: Option<ShortcutBindingConfig>,
+        settings: SettingsValues,
+        config_path: PathBuf,
         app_command_tx: std::sync::Arc<Mutex<Option<UnboundedSender<AppCommand>>>>,
     ) -> Result<Self, String> {
         let icons = TrayIcons::load(ui)?;
@@ -278,6 +304,8 @@ impl TrayRuntime {
         let change_shortcut_id = shortcut_binding
             .as_ref()
             .map(|_| change_shortcut_item.id().clone());
+        let settings_item = MenuItem::new("Settings", true, None);
+        let settings_id = settings_item.id().clone();
         let update_item = MenuItem::new("Update", true, None);
         let update_id = update_item.id().clone();
         let version_item = MenuItem::new(&tray_version_label(), false, None);
@@ -289,6 +317,8 @@ impl TrayRuntime {
             menu.append(&change_shortcut_item)
                 .map_err(|error| format!("failed to build tray menu: {error}"))?;
         }
+        menu.append(&settings_item)
+            .map_err(|error| format!("failed to build tray menu: {error}"))?;
         menu.append(&update_item)
             .map_err(|error| format!("failed to build tray menu: {error}"))?;
         menu.append(&version_item)
@@ -306,10 +336,13 @@ impl TrayRuntime {
         Ok(Self {
             _tray_icon: tray_icon,
             change_shortcut_id,
+            settings_id,
             update_id,
             exit_id,
             icons,
             shortcut_binding: RefCell::new(shortcut_binding),
+            settings: RefCell::new(settings),
+            config_path,
             app_command_tx,
         })
     }
@@ -343,6 +376,11 @@ impl TrayRuntime {
                 continue;
             }
 
+            if event.id == self.settings_id {
+                self.handle_settings();
+                continue;
+            }
+
             if event.id == self.update_id {
                 self.handle_update();
                 continue;
@@ -357,6 +395,46 @@ impl TrayRuntime {
             }) {
                 warn!(error = %error, "failed to send shutdown command from tray");
             }
+        }
+    }
+
+    fn handle_settings(&self) {
+        let current_settings = self.settings.borrow().clone();
+        let edited = match edit_settings(&current_settings) {
+            Ok(result) => result,
+            Err(error) => {
+                warn!(error = %error, "failed to open settings dialog from tray");
+                let _ = show_message_dialog("Settings", &error.to_string(), MessageType::Error);
+                return;
+            }
+        };
+
+        let Some(settings) = edited else {
+            info!("settings change cancelled from tray");
+            return;
+        };
+
+        if let Err(error) = write_settings_to_config(&self.config_path, &settings) {
+            warn!(
+                error = %error,
+                path = %self.config_path.display(),
+                "failed to save settings from tray"
+            );
+            let _ = show_message_dialog("Settings", &error.to_string(), MessageType::Error);
+            return;
+        }
+
+        *self.settings.borrow_mut() = settings;
+
+        if let Err(error) = restart_glossa_service() {
+            warn!(error = %error, "failed to restart glossa service after saving settings");
+            let _ = show_message_dialog(
+                "Settings",
+                &format!(
+                    "The settings were saved, but `systemctl --user restart glossa` failed.\n\n{error}"
+                ),
+                MessageType::Warning,
+            );
         }
     }
 
@@ -437,10 +515,7 @@ impl TrayRuntime {
                     Ok(result) if result.status == UpdaterStatus::Updated => {
                         let _ = show_message_dialog(
                             "Update",
-                            &format!(
-                                "New version {} installed successfully.",
-                                result.version
-                            ),
+                            &format!("New version {} installed successfully.", result.version),
                             MessageType::Info,
                         );
                     }
@@ -461,7 +536,8 @@ impl TrayRuntime {
                     }
                     Err(error) => {
                         warn!(error = %error, "failed to install update from tray");
-                        let _ = show_message_dialog("Update", &error.to_string(), MessageType::Error);
+                        let _ =
+                            show_message_dialog("Update", &error.to_string(), MessageType::Error);
                     }
                 }
             }

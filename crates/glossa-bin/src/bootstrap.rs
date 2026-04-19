@@ -49,11 +49,8 @@ pub fn init_tracing(config: &AppConfig) -> anyhow::Result<()> {
 }
 
 /// Builds the app actor and its dependencies from a validated config.
-pub fn build_tray(config: &AppConfig) -> Arc<BestEffortTrayPort> {
-    Arc::new(BestEffortTrayPort::new(
-        config.ui.clone(),
-        config.input.clone(),
-    ))
+pub fn build_tray(config_path: &PathBuf, config: &AppConfig) -> Arc<BestEffortTrayPort> {
+    Arc::new(BestEffortTrayPort::new(config_path.clone(), config))
 }
 
 /// Builds the app actor and its dependencies from a validated config.
