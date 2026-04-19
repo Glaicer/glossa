@@ -280,6 +280,7 @@ impl TrayRuntime {
             .map(|_| change_shortcut_item.id().clone());
         let update_item = MenuItem::new("Update", true, None);
         let update_id = update_item.id().clone();
+        let version_item = MenuItem::new(&tray_version_label(), false, None);
         let exit_item = MenuItem::new("Exit", true, None);
         let exit_id = exit_item.id().clone();
 
@@ -289,6 +290,8 @@ impl TrayRuntime {
                 .map_err(|error| format!("failed to build tray menu: {error}"))?;
         }
         menu.append(&update_item)
+            .map_err(|error| format!("failed to build tray menu: {error}"))?;
+        menu.append(&version_item)
             .map_err(|error| format!("failed to build tray menu: {error}"))?;
         menu.append(&exit_item)
             .map_err(|error| format!("failed to build tray menu: {error}"))?;
@@ -711,6 +714,10 @@ fn escape_dconf_string(value: &str) -> String {
     value.replace('\\', "\\\\").replace('\'', "\\'")
 }
 
+fn tray_version_label() -> String {
+    format!("version: {}", env!("CARGO_PKG_VERSION"))
+}
+
 fn show_confirmation_dialog(title: &str, message: &str) -> bool {
     let dialog = MessageDialog::new(
         None::<&Window>,
@@ -783,7 +790,10 @@ fn is_ubuntu() -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_captured_shortcut, shortcut_override_value, ShortcutBindingConfig};
+    use super::{
+        normalize_captured_shortcut, shortcut_override_value, tray_version_label,
+        ShortcutBindingConfig,
+    };
     use glossa_core::InputMode;
 
     #[test]
@@ -807,5 +817,13 @@ mod tests {
         assert!(value.contains("'main'"));
         assert!(value.contains("<['<Ctrl><Shift>r']>"));
         assert!(value.contains("Toggle Glossa recording"));
+    }
+
+    #[test]
+    fn tray_version_label_should_include_workspace_version() {
+        assert_eq!(
+            tray_version_label(),
+            format!("version: {}", env!("CARGO_PKG_VERSION"))
+        );
     }
 }
