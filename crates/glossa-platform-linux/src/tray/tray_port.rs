@@ -24,6 +24,7 @@ use gtk::{
     Orientation, ResponseType, Window,
 };
 use png::{ColorType, Decoder};
+use tokio::process::Command as TokioCommand;
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{info, warn};
 use tray_icon::{
@@ -47,6 +48,7 @@ use super::settings::{write_settings_to_config, SettingsValues};
 use super::settings_dialog::edit_settings;
 
 const TRAY_THREAD_NAME: &str = "glossa-tray";
+const NOTIFY_SEND_COMMAND: &str = "notify-send";
 
 /// Best-effort tray port that runs a GTK/AppIndicator tray on Ubuntu GNOME Wayland.
 pub struct BestEffortTrayPort {
@@ -201,7 +203,9 @@ impl TrayPort for BestEffortTrayPort {
     }
 
     async fn show_error(&self, message: &str) -> Result<(), AppError> {
-        self.send_command(TrayCommand::show_error(message.to_owned()));
+        if let Err(error) = send_error_notification(message).await {
+            warn!(error = %error, message, "failed to show desktop notification");
+        }
         Ok(())
     }
 }
@@ -216,14 +220,7 @@ struct ShortcutBindingConfig {
 enum TrayCommand {
     SetState(TrayState),
     SetShortcutDescription(Option<String>),
-    ShowError(()),
     Shutdown,
-}
-
-impl TrayCommand {
-    fn show_error(_message: String) -> Self {
-        Self::ShowError(())
-    }
 }
 
 fn run_tray_thread(
@@ -262,14 +259,31 @@ fn run_tray_thread(
             Ok(TrayCommand::SetShortcutDescription(description)) => {
                 runtime.set_shortcut_description(description);
             }
-            Ok(TrayCommand::ShowError(_)) => {
-                warn!("tray notifications are not implemented; error is logged only");
-            }
             Ok(TrayCommand::Shutdown) => break,
             Err(mpsc::RecvTimeoutError::Timeout) => continue,
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
         }
     }
+}
+
+async fn send_error_notification(message: &str) -> Result<(), AppError> {
+    let status = TokioCommand::new(NOTIFY_SEND_COMMAND)
+        .args(notify_send_arguments(message))
+        .status()
+        .await
+        .map_err(|error| AppError::io("failed to spawn notify-send", error))?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err(AppError::message(format!(
+            "notify-send exited with status {status}"
+        )))
+    }
+}
+
+fn notify_send_arguments(message: &str) -> Vec<&str> {
+    vec!["-a", "Glossa", "-t", "3000", "Glossa", message]
 }
 
 fn pump_gtk_events() {
@@ -867,8 +881,8 @@ fn is_ubuntu() -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        normalize_captured_shortcut, shortcut_override_value, tray_version_label,
-        ShortcutBindingConfig,
+        normalize_captured_shortcut, notify_send_arguments, shortcut_override_value,
+        tray_version_label, ShortcutBindingConfig,
     };
     use glossa_core::InputMode;
 
@@ -900,6 +914,21 @@ mod tests {
         assert_eq!(
             tray_version_label(),
             format!("version: {}", env!("CARGO_PKG_VERSION"))
+        );
+    }
+
+    #[test]
+    fn notify_send_arguments_should_include_timeout_and_message() {
+        assert_eq!(
+            notify_send_arguments("status 429 Too Many Requests"),
+            vec![
+                "-a",
+                "Glossa",
+                "-t",
+                "3000",
+                "Glossa",
+                "status 429 Too Many Requests",
+            ]
         );
     }
 }

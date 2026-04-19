@@ -276,6 +276,21 @@ ensure_wl_copy() {
     || die "wl-copy is installed at ${wl_copy_path}, but 'wl-copy --version' failed."
 }
 
+ensure_notify_send() {
+  if command -v notify-send >/dev/null 2>&1; then
+    notify_send_path="$(command -v notify-send)"
+  else
+    log "notify-send was not found. Installing libnotify-bin via apt-get."
+    sudo apt-get update
+    sudo apt-get install -y libnotify-bin
+    command -v notify-send >/dev/null 2>&1 || die "notify-send is still unavailable after installing libnotify-bin."
+    notify_send_path="$(command -v notify-send)"
+  fi
+
+  "${notify_send_path}" --version >/dev/null 2>&1 \
+    || die "notify-send is installed at ${notify_send_path}, but 'notify-send --version' failed."
+}
+
 ensure_libxdo3() {
   if dpkg-query -W -f='${Status}' libxdo3 2>/dev/null | grep -Fq "install ok installed"; then
     return 0
@@ -786,6 +801,7 @@ main() {
   assert_wayland
   systemctl --user --version >/dev/null 2>&1 || die "systemctl --user is not available in this session."
   ensure_wl_copy
+  ensure_notify_send
   ensure_libxdo3
   download_and_install_glossa
   maybe_generate_config

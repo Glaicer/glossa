@@ -19,6 +19,7 @@ impl Doctor {
             check_session_bus(),
             check_portal(config),
             check_binary("wl-copy"),
+            check_binary("notify-send"),
             check_binary("dotool"),
             check_tray(config),
             check_socket(config),
