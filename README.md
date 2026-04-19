@@ -35,6 +35,100 @@ The script will automatically install runtime dependencies if missing and config
 
 You may need to log out and back in before paste works if `dotool` was installed during the script run.
 
+## Manual Installation
+
+If you do not want to use `install.sh`, you can install the release bundle manually on Ubuntu GNOME Wayland:
+
+1. Download `glossa-linux-x86_64.tar.gz` and `sha256sums.txt` from the latest GitHub release.
+2. Verify the archive:
+
+```bash
+sha256sum -c --ignore-missing sha256sums.txt
+```
+
+3. Extract it:
+
+```bash
+tar -xzf glossa-linux-x86_64.tar.gz
+```
+
+4. Install the runtime dependencies that `install.sh` normally checks for:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y wl-clipboard libxdo3
+```
+
+5. Install the bundled `dotool` payload and udev rule:
+
+```bash
+sudo install -Dm755 dotool/dotool /usr/local/bin/dotool
+sudo install -Dm755 dotool/dotoolc /usr/local/bin/dotoolc
+sudo install -Dm755 dotool/dotoold /usr/local/bin/dotoold
+sudo install -Dm644 dotool/80-dotool.rules /etc/udev/rules.d/80-dotool.rules
+sudo groupadd -f input
+sudo usermod -a -G input "$USER"
+sudo udevadm control --reload
+sudo udevadm trigger
+```
+
+6. Install Glossa itself under your user account:
+
+```bash
+mkdir -p ~/.local/share/glossa/assets/tray ~/.local/share/glossa/assets/sounds
+install -Dm755 glossa ~/.local/bin/glossa
+install -Dm755 update.sh ~/.local/bin/update.sh
+install -Dm644 VERSION ~/.local/share/glossa/VERSION
+install -m644 assets/tray/* ~/.local/share/glossa/assets/tray/
+install -m644 assets/sounds/* ~/.local/share/glossa/assets/sounds/
+```
+
+7. Create `~/.config/glossa/config.toml`. A good reference is `contrib/examples/config.toml` from this repository. If you use `api_key = "env:..."`, also provide the variable through `~/.config/glossa/glossa.env` or your user session environment.
+8. Create the user services and enable them:
+
+```bash
+mkdir -p ~/.config/systemd/user
+cat > ~/.config/systemd/user/dotool.service <<'EOF'
+[Unit]
+Description=dotool daemon
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/dotoold
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=graphical-session.target
+EOF
+
+cat > ~/.config/systemd/user/glossa.service <<'EOF'
+[Unit]
+Description=glossa user-session daemon
+PartOf=graphical-session.target
+After=graphical-session.target dotool.service
+Wants=dotool.service
+
+[Service]
+Type=simple
+EnvironmentFile=-%h/.config/glossa/glossa.env
+ExecStart=%h/.local/bin/glossa --config %h/.config/glossa/config.toml daemon
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=graphical-session.target
+EOF
+
+systemctl --user daemon-reload
+systemctl --user enable --now dotool.service
+systemctl --user enable --now glossa.service
+```
+
+If `dotool` was installed for the first time, log out and back in before expecting paste to work.
+
 ## CLI Commands
 
 Glossa provides these CLI commands:
@@ -98,6 +192,31 @@ Glossa depends on:
 - `dotool`
 
 The installer checks for both and installs them automatically.
+
+## Development
+
+For local development, use the example config and standard Cargo commands:
+
+```bash
+cargo build
+cargo test --workspace
+cargo clippy --workspace
+cargo run --package glossa-bin -- --config contrib/examples/config.toml daemon
+```
+
+The example config already points at the checked-out `contrib/assets/...` files, so it is meant for running from the repository rather than from an installed release.
+
+To build the release artifacts that `install.sh` expects, run:
+
+```bash
+./build-release-tarball.sh
+```
+
+The script will prompt for a release version, build `glossa-bin` in release mode, render the version-pinned updater from `contrib/release/glossa-update.sh`, bundle the `glossa` binary, `update.sh`, tray icons, sounds, and `dotool` payload, and write everything under `target/release/github/<version>/`:
+
+- `glossa-linux-x86_64.tar.gz`
+- `glossa-update.sh`
+- `sha256sums.txt`
 
 ## Roadmap
 
