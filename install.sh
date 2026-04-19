@@ -14,6 +14,7 @@ readonly LOCAL_SOUND_DIR="${LOCAL_ASSETS_DIR}/sounds"
 readonly LOCAL_VERSION_PATH="${LOCAL_SHARE_DIR}/VERSION"
 readonly CONFIG_DIR="${HOME}/.config/glossa"
 readonly CONFIG_PATH="${CONFIG_DIR}/config.toml"
+readonly GLOSSA_ENV_PATH="${CONFIG_DIR}/glossa.env"
 readonly SYSTEMD_USER_DIR="${HOME}/.config/systemd/user"
 readonly GLOSSA_SERVICE_PATH="${SYSTEMD_USER_DIR}/glossa.service"
 readonly DOTOOL_SERVICE_PATH="${SYSTEMD_USER_DIR}/dotool.service"
@@ -36,6 +37,8 @@ dotool_installed_this_run=0
 manual_provider_setup=0
 created_or_updated_config=0
 keep_existing_config=0
+glossa_service_ready=1
+missing_service_env_name=""
 provider_kind="groq"
 provider_base_url="https://api.groq.com/openai/v1"
 provider_model="whisper-large-v3-turbo"
@@ -87,6 +90,61 @@ read_tty() {
 
 normalize_answer() {
   printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
+}
+
+config_api_key_source() {
+  if [[ ! -f "${CONFIG_PATH}" ]]; then
+    return 0
+  fi
+
+  sed -n 's/^api_key = "\(.*\)"$/\1/p' "${CONFIG_PATH}" | head -n 1
+}
+
+env_file_contains_var() {
+  local env_name="$1"
+  [[ -f "${GLOSSA_ENV_PATH}" ]] && grep -Eq "^${env_name}=" "${GLOSSA_ENV_PATH}"
+}
+
+write_glossa_env_file() {
+  local env_name="$1"
+  local env_value="$2"
+
+  mkdir -p "${CONFIG_DIR}"
+  printf '%s="%s"\n' "${env_name}" "${env_value//\"/\\\"}" > "${GLOSSA_ENV_PATH}"
+}
+
+sync_glossa_service_environment() {
+  local api_key_source
+  local env_name
+  local env_value
+
+  glossa_service_ready=1
+  missing_service_env_name=""
+  api_key_source="$(config_api_key_source)"
+
+  if [[ -z "${api_key_source}" || "${api_key_source}" != env:* ]]; then
+    rm -f "${GLOSSA_ENV_PATH}"
+    return 0
+  fi
+
+  env_name="${api_key_source#env:}"
+  if [[ -z "${env_name}" ]]; then
+    die "Config uses an invalid env-based provider.api_key source."
+  fi
+
+  env_value="${!env_name-}"
+  if [[ -n "${env_value}" ]]; then
+    write_glossa_env_file "${env_name}" "${env_value}"
+    return 0
+  fi
+
+  if env_file_contains_var "${env_name}"; then
+    return 0
+  fi
+
+  glossa_service_ready=0
+  missing_service_env_name="${env_name}"
+  warn "The current shell does not define ${env_name}. Glossa will be installed but not started until ${GLOSSA_ENV_PATH} provides it."
 }
 
 confirm_continue() {
@@ -593,12 +651,13 @@ maybe_generate_config() {
 
   if (( keep_existing_config == 1 )); then
     log "Keeping the existing config at ${CONFIG_PATH}"
-    return 0
+  else
+    configure_new_install
+    backup_existing_config
+    write_config_file
   fi
 
-  configure_new_install
-  backup_existing_config
-  write_config_file
+  sync_glossa_service_environment
 }
 
 write_dotool_service() {
@@ -633,6 +692,7 @@ Wants=dotool.service
 
 [Service]
 Type=simple
+EnvironmentFile=-%h/.config/glossa/glossa.env
 ExecStart=%h/.local/bin/glossa --config %h/.config/glossa/config.toml daemon
 Restart=on-failure
 RestartSec=2
@@ -652,6 +712,12 @@ enable_services() {
   fi
 
   if (( manual_provider_setup == 1 )); then
+    return 0
+  fi
+
+  if (( glossa_service_ready == 0 )); then
+    systemctl --user stop glossa.service >/dev/null 2>&1 || true
+    systemctl --user enable glossa.service >/dev/null
     return 0
   fi
 
@@ -699,6 +765,10 @@ print_final_summary() {
 
   if (( manual_provider_setup == 1 )); then
     log "Edit the provider settings first, then start Glossa with: systemctl --user start glossa.service"
+  fi
+
+  if (( glossa_service_ready == 0 )); then
+    log "Create ${GLOSSA_ENV_PATH} with ${missing_service_env_name}=... or rerun the installer with ${missing_service_env_name} exported, then start Glossa with: systemctl --user start glossa.service"
   fi
 
   if (( dotool_installed_this_run == 1 )); then
