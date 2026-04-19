@@ -52,21 +52,21 @@ tray = true
 # Selects which tray icon set to use; options: "light", "dark".
 theme = "dark"
 # Sets the tray icon shown while idle; options: absolute path to an icon file.
-idle_icon = "/home/glaicer/Development/glossa/contrib/assets/tray/idle.png"
+idle_icon = "/home/<user_name>/.local/share/glossa/assets/tray/idle.png"
 # Sets the tray icon shown while recording; options: absolute path to an icon file.
-recording_icon = "/home/glaicer/Development/glossa/contrib/assets/tray/recording.png"
+recording_icon = "/home/<user_name>/.local/share/glossa/assets/tray/recording.png"
 # Sets the tray icon shown while processing; options: absolute path to an icon file.
-processing_icon = "/home/glaicer/Development/glossa/contrib/assets/tray/processing.png"
+processing_icon = "/home/<user_name>/.local/share/glossa/assets/tray/processing.png"
 # Sets the dark-theme tray icon shown while idle; options: absolute path to an icon file.
-idle_dark_icon = "/home/glaicer/Development/glossa/contrib/assets/tray/idle_dark.png"
+idle_dark_icon = "/home/<user_name>/.local/share/glossa/assets/tray/idle_dark.png"
 # Sets the dark-theme tray icon shown while recording; options: absolute path to an icon file.
-recording_dark_icon = "/home/glaicer/Development/glossa/contrib/assets/tray/recording_dark.png"
+recording_dark_icon = "/home/<user_name>/.local/share/glossa/assets/tray/recording_dark.png"
 # Sets the dark-theme tray icon shown while processing; options: absolute path to an icon file.
-processing_dark_icon = "/home/glaicer/Development/glossa/contrib/assets/tray/processing_dark.png"
+processing_dark_icon = "/home/<user_name>/.local/share/glossa/assets/tray/processing_dark.png"
 # Sets the sound played when recording starts; options: absolute path to an audio file.
-start_sound = "/home/glaicer/Development/glossa/contrib/assets/sounds/start.wav"
+start_sound = "/home/<user_name>/.local/share/glossa/assets/sounds/start.wav"
 # Sets the sound played when recording stops; options: absolute path to an audio file.
-stop_sound = "/home/glaicer/Development/glossa/contrib/assets/sounds/stop.wav"
+stop_sound = "/home/<user_name>/.local/share/glossa/assets/sounds/stop.wav"
 
 [logging]
 # Sets the minimum log verbosity; options typically include "trace", "debug", "info", "warn", "error".
