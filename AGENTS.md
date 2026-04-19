@@ -85,11 +85,17 @@ glossa/
 ├── Cargo.toml               # workspace root
 ├── rust-toolchain.toml       # stable toolchain, clippy + rustfmt
 ├── AGENTS.md                 # ← this file
+├── build-release-tarball.sh  # packages release tarball + checksums + updater asset
+├── install.sh                # interactive installer for local user setup
+├── uninstall.sh              # uninstall helper for local user setup
+├── update.sh                 # bootstrap updater that fetches the latest release updater
 ├── contrib/
 │   ├── assets/sounds/        # start.wav, stop.wav cue sounds
 │   ├── assets/tray/          # tray icons (light/dark themes)
+│   ├── dotool/               # bundled dotool binary + vendored source
 │   ├── examples/config.toml  # reference TOML config
-│   └── systemd/glossa.service
+│   ├── release/              # release-time updater template
+│   └── systemd/              # user services for glossa + dotool
 └── crates/
     ├── glossa-core/          # pure types, config, state, enums
     ├── glossa-app/           # state machine, orchestration, port traits
@@ -198,13 +204,22 @@ One shared `HttpSttClient` implementing `SttClient`, with thin strategy construc
 | `temp/xdg_temp_store.rs` | Temp files in `$XDG_RUNTIME_DIR` with per-session cleanup |
 | `doctor/checks.rs` | Environment probes (Wayland, GNOME, binaries, portal, API key, etc.) |
 | `shortcut_capture.rs` | GTK dialog for tray-driven shortcut rebinding |
+| `updater.rs` | Finds and runs the bundled `update.sh`; supports check/install flows for CLI and tray |
 
 ### `glossa-bin` — CLI & Composition Root
 
-- `cli.rs` — clap-derived CLI: `daemon`, `ctl {toggle, shutdown}`, `doctor`, `status`
+- `cli.rs` — clap-derived CLI: `daemon`, `ctl {toggle, shutdown}`, `doctor`, `status`, `update`
 - `bootstrap.rs` — config loading, tracing init, dependency wiring (`build_actor`, `build_tray`)
 - `cmd/daemon.rs` — daemon loop: build actor → spawn IPC + portal tasks → run → restart or exit
-- `cmd/ctl.rs`, `cmd/doctor.rs`, `cmd/status.rs` — subcommand handlers
+- `cmd/ctl.rs`, `cmd/doctor.rs`, `cmd/status.rs`, `cmd/update.rs` — subcommand handlers
+
+### Release & Install Tooling
+
+- `install.sh` — interactive installer that downloads the latest release, installs runtime dependencies, lays down user services, and writes `~/.config/glossa/config.toml`
+- `update.sh` — thin bootstrap script that fetches the release-specific updater asset and verifies its checksum before running it
+- `contrib/release/glossa-update.sh` — template rendered into the version-pinned updater uploaded with each GitHub release
+- `build-release-tarball.sh` — builds the release binary, assembles the release bundle, renders the updater asset, and writes checksums under `target/release/github/<version>/`
+- `uninstall.sh` — removes the locally installed Glossa files and systemd user units
 
 ---
 
@@ -312,7 +327,7 @@ All crates inherit these via `[lints] workspace = true`.
 ### Configuration
 
 - TOML config parsed via `serde` into `AppConfig`, then validated with `AppConfig::validate()`.
-- API keys: either literal or `env:VAR_NAME` syntax, resolved at runtime. **Never logged.**
+- API keys: literal, empty, or `env:VAR_NAME` syntax, resolved at runtime. Empty API keys are only valid for `openai-compatible` providers. **Never logged.**
 - `work_dir = "auto"` resolves to `$XDG_RUNTIME_DIR/glossa/`.
 - `socket_path = "auto"` resolves to `$XDG_RUNTIME_DIR/glossa.sock`.
 - Changing portal shortcut from tray writes to `dconf`, not to `config.toml`.
@@ -353,6 +368,22 @@ glossa ctl toggle → IPC client → Unix socket → IpcServer → ToggleRecordi
 
 Always toggle semantics. Does not read `[input.mode]`.
 
+### CLI Update
+
+```
+glossa update → glossa-bin::cmd::update → glossa-platform-linux::updater::run_local_updater → local update.sh
+```
+
+`update.sh` downloads the release-specific updater asset, verifies checksums, installs the new bundle, and restarts `glossa.service`.
+
+### Tray Update
+
+1. Tray menu → "Update"
+2. `TrayRuntime` calls `check_for_update()` via `glossa-platform-linux::updater`
+3. GTK dialog reports "already installed" or asks for confirmation
+4. On confirm, `install_update()` runs the local `update.sh install`
+5. Result is reported back to the user via GTK dialog
+
 ### Daemon Restart (Tray Shortcut Change)
 
 1. Tray menu → "Change shortcut" → GTK capture dialog
@@ -372,6 +403,7 @@ Always toggle semantics. Does not read `[input.mode]`.
 | `dconf` | GNOME settings (shortcut rebind) | `dconf-cli` |
 
 The tray requires the **AppIndicator and KStatusNotifierItem Support** GNOME Shell extension. If absent, the daemon continues without tray — it does not crash.
+Installer and updater scripts additionally rely on standard user-session tooling such as `systemctl`, `tar`, `sha256sum`, and `curl`/`wget`.
 
 ---
 
@@ -391,6 +423,7 @@ glossa ctl toggle
 glossa ctl shutdown
 glossa status
 glossa doctor
+glossa update
 ```
 
 Systemd user service: `contrib/systemd/glossa.service`
