@@ -24,6 +24,7 @@ pub enum Command {
     },
     Doctor,
     Status,
+    Update,
 }
 
 /// Subcommands for the external control CLI.
@@ -41,27 +42,31 @@ mod tests {
 
     #[test]
     fn config_flag_after_subcommand_should_parse() {
-        let cli = Cli::try_parse_from([
-            "glossa",
-            "daemon",
-            "--config",
-            "/tmp/glossa.toml",
-        ])
-        .expect("config flag after daemon subcommand should parse");
+        let cli = Cli::try_parse_from(["glossa", "daemon", "--config", "/tmp/glossa.toml"])
+            .expect("config flag after daemon subcommand should parse");
 
-        assert_eq!(cli.config.as_deref(), Some(std::path::Path::new("/tmp/glossa.toml")));
+        assert_eq!(
+            cli.config.as_deref(),
+            Some(std::path::Path::new("/tmp/glossa.toml"))
+        );
     }
 
     #[test]
     fn config_flag_before_subcommand_should_parse() {
-        let cli = Cli::try_parse_from([
-            "glossa",
-            "--config",
-            "/tmp/glossa.toml",
-            "daemon",
-        ])
-        .expect("config flag before daemon subcommand should parse");
+        let cli = Cli::try_parse_from(["glossa", "--config", "/tmp/glossa.toml", "daemon"])
+            .expect("config flag before daemon subcommand should parse");
 
-        assert_eq!(cli.config.as_deref(), Some(std::path::Path::new("/tmp/glossa.toml")));
+        assert_eq!(
+            cli.config.as_deref(),
+            Some(std::path::Path::new("/tmp/glossa.toml"))
+        );
+    }
+
+    #[test]
+    fn update_subcommand_should_parse() {
+        let cli =
+            Cli::try_parse_from(["glossa", "update"]).expect("update subcommand should parse");
+
+        assert!(matches!(cli.command, super::Command::Update));
     }
 }

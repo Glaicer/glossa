@@ -2,15 +2,17 @@
 set -euo pipefail
 
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
-readonly TARGET_DIR="${SCRIPT_DIR}/target/release"
+readonly BUILD_TARGET_DIR="${SCRIPT_DIR}/target/release"
+readonly GITHUB_RELEASE_DIR="${BUILD_TARGET_DIR}/github"
 readonly GLOSSA_ASSET_NAME="glossa-linux-x86_64.tar.gz"
-readonly LEGACY_DOTOOL_ASSET_NAME="dotool-linux-x86_64.tar.gz"
+readonly UPDATER_ASSET_NAME="glossa-update.sh"
 readonly CHECKSUMS_NAME="sha256sums.txt"
 readonly TTY_FD_DEFAULT=3
 
 tty_fd="${TTY_FD_DEFAULT}"
 release_version=""
 staging_dir=""
+target_dir=""
 
 cleanup() {
   if [[ -n "${staging_dir}" && -d "${staging_dir}" ]]; then
@@ -54,8 +56,7 @@ confirm_continue() {
   log "This script will:"
   log "- build the release Glossa binary with cargo"
   log "- assemble the single archive layout expected by install.sh"
-  log "- write ${TARGET_DIR}/${GLOSSA_ASSET_NAME}"
-  log "- refresh ${TARGET_DIR}/${CHECKSUMS_NAME}"
+  log "- write release files under target/release/github/<release_version>"
   log
 
   while true; do
@@ -98,6 +99,7 @@ assert_prerequisites() {
   require_command tar
   require_command sha256sum
   require_command mktemp
+  require_command sed
 }
 
 resolve_dotool_payload() {
@@ -122,10 +124,16 @@ build_release_binary() {
   cargo build --release --package glossa-bin
 }
 
-remove_legacy_assets() {
-  if [[ -f "${TARGET_DIR}/${LEGACY_DOTOOL_ASSET_NAME}" ]]; then
-    rm -f "${TARGET_DIR}/${LEGACY_DOTOOL_ASSET_NAME}"
-  fi
+set_target_dir() {
+  target_dir="${GITHUB_RELEASE_DIR}/${release_version}"
+}
+
+render_release_updater() {
+  log "Rendering ${UPDATER_ASSET_NAME}"
+  sed "s|__GLOSSA_RELEASE_VERSION__|${release_version}|g" \
+    "${SCRIPT_DIR}/contrib/release/glossa-update.sh" \
+    > "${target_dir}/${UPDATER_ASSET_NAME}"
+  chmod 755 "${target_dir}/${UPDATER_ASSET_NAME}"
 }
 
 stage_release_contents() {
@@ -137,7 +145,8 @@ stage_release_contents() {
   local rules_path
 
   mkdir -p "${archive_root}/assets/tray" "${archive_root}/assets/sounds" "${dotool_root}"
-  install -m755 "${TARGET_DIR}/glossa" "${archive_root}/glossa"
+  install -m755 "${BUILD_TARGET_DIR}/glossa" "${archive_root}/glossa"
+  install -m755 "${SCRIPT_DIR}/update.sh" "${archive_root}/update.sh"
   install -m644 "${SCRIPT_DIR}/contrib/assets/tray/"* "${archive_root}/assets/tray/"
   install -m644 "${SCRIPT_DIR}/contrib/assets/sounds/"* "${archive_root}/assets/sounds/"
   dotool_path="$(resolve_dotool_payload "dotool")"
@@ -154,19 +163,20 @@ stage_release_contents() {
 
 write_archive() {
   log "Creating ${GLOSSA_ASSET_NAME}"
-  tar -czf "${TARGET_DIR}/${GLOSSA_ASSET_NAME}" \
+  tar -czf "${target_dir}/${GLOSSA_ASSET_NAME}" \
     -C "${staging_dir}" \
     assets \
     dotool \
     glossa \
+    update.sh \
     VERSION
 }
 
 write_checksums() {
   log "Writing ${CHECKSUMS_NAME}"
   (
-    cd "${TARGET_DIR}"
-    sha256sum "${GLOSSA_ASSET_NAME}" > "${CHECKSUMS_NAME}"
+    cd "${target_dir}"
+    sha256sum "${GLOSSA_ASSET_NAME}" "${UPDATER_ASSET_NAME}" > "${CHECKSUMS_NAME}"
   )
 }
 
@@ -174,19 +184,21 @@ print_summary() {
   log
   log "Release packaging complete."
   log "- Version: ${release_version}"
-  log "- Tarball: ${TARGET_DIR}/${GLOSSA_ASSET_NAME}"
-  log "- Checksums: ${TARGET_DIR}/${CHECKSUMS_NAME}"
+  log "- Tarball: ${target_dir}/${GLOSSA_ASSET_NAME}"
+  log "- Updater: ${target_dir}/${UPDATER_ASSET_NAME}"
+  log "- Checksums: ${target_dir}/${CHECKSUMS_NAME}"
 }
 
 main() {
   open_tty
   confirm_continue
   prompt_release_version
+  set_target_dir
   assert_prerequisites
-  mkdir -p "${TARGET_DIR}"
+  mkdir -p "${target_dir}"
   staging_dir="$(mktemp -d)"
   build_release_binary
-  remove_legacy_assets
+  render_release_updater
   stage_release_contents
   write_archive
   write_checksums

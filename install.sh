@@ -11,12 +11,14 @@ readonly LOCAL_SHARE_DIR="${HOME}/.local/share/glossa"
 readonly LOCAL_ASSETS_DIR="${LOCAL_SHARE_DIR}/assets"
 readonly LOCAL_TRAY_DIR="${LOCAL_ASSETS_DIR}/tray"
 readonly LOCAL_SOUND_DIR="${LOCAL_ASSETS_DIR}/sounds"
+readonly LOCAL_VERSION_PATH="${LOCAL_SHARE_DIR}/VERSION"
 readonly CONFIG_DIR="${HOME}/.config/glossa"
 readonly CONFIG_PATH="${CONFIG_DIR}/config.toml"
 readonly SYSTEMD_USER_DIR="${HOME}/.config/systemd/user"
 readonly GLOSSA_SERVICE_PATH="${SYSTEMD_USER_DIR}/glossa.service"
 readonly DOTOOL_SERVICE_PATH="${SYSTEMD_USER_DIR}/dotool.service"
 readonly INSTALLED_GLOSSA_PATH="${LOCAL_BIN_DIR}/glossa"
+readonly INSTALLED_UPDATE_PATH="${LOCAL_BIN_DIR}/update.sh"
 readonly INSTALLED_DOTOOL_PATH="/usr/local/bin/dotool"
 readonly INSTALLED_DOTOOLC_PATH="/usr/local/bin/dotoolc"
 readonly INSTALLED_DOTOOLD_PATH="/usr/local/bin/dotoold"
@@ -289,17 +291,23 @@ extract_glossa_bundle() {
 install_glossa_bundle() {
   local bundle_dir="$1"
   local glossa_source="${bundle_dir}/glossa"
+  local update_source="${bundle_dir}/update.sh"
   local tray_source="${bundle_dir}/assets/tray"
   local sound_source="${bundle_dir}/assets/sounds"
+  local version_source="${bundle_dir}/VERSION"
 
   [[ -f "${glossa_source}" ]] || die "The Glossa release bundle does not contain the 'glossa' binary."
+  [[ -f "${update_source}" ]] || die "The Glossa release bundle does not contain 'update.sh'."
   [[ -d "${tray_source}" ]] || die "The Glossa release bundle does not contain tray icons under assets/tray."
   [[ -d "${sound_source}" ]] || die "The Glossa release bundle does not contain cue sounds under assets/sounds."
+  [[ -f "${version_source}" ]] || die "The Glossa release bundle does not contain VERSION."
 
-  mkdir -p "${LOCAL_BIN_DIR}" "${LOCAL_TRAY_DIR}" "${LOCAL_SOUND_DIR}"
+  mkdir -p "${LOCAL_BIN_DIR}" "${LOCAL_TRAY_DIR}" "${LOCAL_SOUND_DIR}" "${LOCAL_SHARE_DIR}"
   install -m755 "${glossa_source}" "${INSTALLED_GLOSSA_PATH}"
+  install -m755 "${update_source}" "${INSTALLED_UPDATE_PATH}"
   install -m644 "${tray_source}/"* "${LOCAL_TRAY_DIR}/"
   install -m644 "${sound_source}/"* "${LOCAL_SOUND_DIR}/"
+  install -m644 "${version_source}" "${LOCAL_VERSION_PATH}"
 
   glossa_path="${INSTALLED_GLOSSA_PATH}"
 }
@@ -679,6 +687,7 @@ print_final_summary() {
   log
   log "Installation complete."
   log "- Glossa binary: ${glossa_path}"
+  log "- Updater script: ${INSTALLED_UPDATE_PATH}"
   log "- Config: ${CONFIG_PATH}"
   log "- Assets: ${LOCAL_SHARE_DIR}"
   log

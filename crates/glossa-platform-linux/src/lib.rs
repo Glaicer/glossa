@@ -8,3 +8,4 @@ pub mod portal;
 pub(crate) mod shortcut_capture;
 pub mod temp;
 pub mod tray;
+pub mod updater;

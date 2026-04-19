@@ -39,6 +39,7 @@ use glossa_core::{AppCommand, CommandOrigin, InputBackend, InputConfig, InputMod
 
 use crate::portal::{portal_shortcut_description, PORTAL_APP_ID, PORTAL_SHORTCUT_ID};
 use crate::shortcut_capture::begin_shortcut_capture;
+use crate::updater::spawn_local_updater;
 
 const TRAY_THREAD_NAME: &str = "glossa-tray";
 
@@ -258,6 +259,7 @@ fn pump_gtk_events() {
 struct TrayRuntime {
     _tray_icon: TrayIcon,
     change_shortcut_id: Option<tray_icon::menu::MenuId>,
+    update_id: tray_icon::menu::MenuId,
     exit_id: tray_icon::menu::MenuId,
     icons: TrayIcons,
     shortcut_binding: RefCell<Option<ShortcutBindingConfig>>,
@@ -275,6 +277,8 @@ impl TrayRuntime {
         let change_shortcut_id = shortcut_binding
             .as_ref()
             .map(|_| change_shortcut_item.id().clone());
+        let update_item = MenuItem::new("Update", true, None);
+        let update_id = update_item.id().clone();
         let exit_item = MenuItem::new("Exit", true, None);
         let exit_id = exit_item.id().clone();
 
@@ -283,6 +287,8 @@ impl TrayRuntime {
             menu.append(&change_shortcut_item)
                 .map_err(|error| format!("failed to build tray menu: {error}"))?;
         }
+        menu.append(&update_item)
+            .map_err(|error| format!("failed to build tray menu: {error}"))?;
         menu.append(&exit_item)
             .map_err(|error| format!("failed to build tray menu: {error}"))?;
 
@@ -296,6 +302,7 @@ impl TrayRuntime {
         Ok(Self {
             _tray_icon: tray_icon,
             change_shortcut_id,
+            update_id,
             exit_id,
             icons,
             shortcut_binding: RefCell::new(shortcut_binding),
@@ -329,6 +336,11 @@ impl TrayRuntime {
                 .is_some_and(|id| id == &event.id)
             {
                 self.handle_change_shortcut();
+                continue;
+            }
+
+            if event.id == self.update_id {
+                self.handle_update();
                 continue;
             }
 
@@ -382,6 +394,17 @@ impl TrayRuntime {
                 "Change shortcut",
                 "The shortcut was stored, but the daemon could not restart. Restart it manually.",
                 MessageType::Warning,
+            );
+        }
+    }
+
+    fn handle_update(&self) {
+        if let Err(error) = spawn_local_updater() {
+            warn!(error = %error, "failed to launch updater from tray");
+            show_message_dialog(
+                "Update",
+                "Could not start update.sh. Ensure Glossa was installed with the bundled updater script.",
+                MessageType::Error,
             );
         }
     }

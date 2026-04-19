@@ -26,11 +26,23 @@ I personally recommend using [Groq](https://groq.com/) as it offers the followin
 
 Run the interactive installer:
 
-`bash <(curl -fsSL https://raw.githubusercontent.com/Glaicer/glossa/main/install.sh)`
+```
+bash <(wget -qO- https://raw.githubusercontent.com/Glaicer/glossa/main/install.sh)
+```
 
 The script will automatically install runtime dependencies if missing and configure Glossa via terminal interface.
 
 You may need to log out and back in before paste works if `dotool` was installed during the script run.
+
+## Updating
+
+Update an existing installation in any of these ways:
+
+- `bash <(wget -qO- https://raw.githubusercontent.com/Glaicer/glossa/main/update.sh)`
+- `glossa update`
+- tray menu: `Update`
+
+The updater downloads the latest stable release, verifies its checksum, replaces the Glossa binary and bundled assets, and restarts `glossa.service`.
 
 ## Why I built this
 
@@ -60,8 +72,6 @@ The installer checks for both and installs them automatically.
 
 Planned features:
 
-- automatic installation
-- updater
 - settings GUI
 - clipboard restore after paste
 - direct input support
