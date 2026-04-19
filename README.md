@@ -35,6 +35,78 @@ The script will automatically install runtime dependencies if missing and config
 
 You may need to log out and back in before paste works if `dotool` was installed during the script run.
 
+## Why I built this
+
+I started Glossa because speech-to-text on GNOME Wayland still feels more awkward than it should.
+
+Here are the issues I kept running into with other tools:
+
+- On Wayland, apps usually cannot register true global hotkeys directly, so you often end up depending on desktop portal support.
+- A popular library `wtype` fails in Wayland throwing: "Compositor does not support the virtual keyboard protocol".
+- Another popular library `ydotool` throws `ydotoold backend unavailable (may have latency+delay issues)`.
+- You can fix `ydotool` installation, but it still has issues: it doesn't support many non-English keyboard layouts and it has broken keybindings which prevents pasting from the clipboard via shortcuts.
+- `dotool` has worked for me, however it is shipped as the source code and must be compiled manually.
+- There are some very decent apps with local (gguf) STT models support, however these models are slower and less accurate on laptops than cloud APIs.
+
+Glossa is my attempt to make this whole workflow simpler and more reliable on Ubuntu GNOME Wayland.
+
+## Roadmap
+
+Planned features:
+
+- clipboard restore after paste
+- direct input support
+- FLAC recording
+
+## CLI Commands
+
+Glossa provides these CLI commands:
+
+- `glossa daemon` runs the daemon in the foreground. It requires `--config <path>`.
+- `glossa service start` starts the installed `glossa` systemd user service.
+- `glossa service stop` stops the installed `glossa` systemd user service.
+- `glossa service restart` restarts the installed `glossa` systemd user service.
+- `glossa ctl toggle` sends a toggle-recording command to the running daemon over IPC.
+- `glossa ctl shutdown` asks the running daemon to shut down over IPC.
+- `glossa doctor` runs environment and configuration diagnostics.
+- `glossa status` prints the current daemon status reported over IPC.
+- `glossa update` downloads and installs the latest release.
+
+## Updating
+
+Update an existing installation in any of these ways:
+
+- `bash <(wget -qO- https://raw.githubusercontent.com/Glaicer/glossa/main/update.sh)`
+- `glossa update`
+- tray menu: `Update`
+
+The updater downloads the latest stable release, verifies its checksum, replaces the Glossa binary and bundled assets, and restarts `glossa.service`.
+
+## Uninstalling
+
+Run the interactive uninstaller:
+
+```
+bash <(wget -qO- https://raw.githubusercontent.com/Glaicer/glossa/main/uninstall.sh)
+```
+
+The script will:
+
+- stop and remove the `glossa` and `dotool` user services
+- remove the Glossa binary and bundled assets
+- remove the generated Glossa config, or restore the most recent config backup if one exists
+- keep a non-installer-managed `~/.config/glossa/config.toml` in place
+- optionally remove `wl-clipboard` and `dotool`
+
+## Requirements
+
+Glossa depends on:
+
+- `wl-copy`
+- `dotool`
+
+The installer checks for both and installs them automatically.
+
 ## Manual Installation
 
 If you do not want to use `install.sh`, you can install the release bundle manually on Ubuntu GNOME Wayland:
@@ -129,70 +201,6 @@ systemctl --user enable --now glossa.service
 
 If `dotool` was installed for the first time, log out and back in before expecting paste to work.
 
-## CLI Commands
-
-Glossa provides these CLI commands:
-
-- `glossa daemon` runs the daemon in the foreground. It requires `--config <path>`.
-- `glossa service start` starts the installed `glossa` systemd user service.
-- `glossa service stop` stops the installed `glossa` systemd user service.
-- `glossa service restart` restarts the installed `glossa` systemd user service.
-- `glossa ctl toggle` sends a toggle-recording command to the running daemon over IPC.
-- `glossa ctl shutdown` asks the running daemon to shut down over IPC.
-- `glossa doctor` runs environment and configuration diagnostics.
-- `glossa status` prints the current daemon status reported over IPC.
-- `glossa update` downloads and installs the latest release.
-
-## Updating
-
-Update an existing installation in any of these ways:
-
-- `bash <(wget -qO- https://raw.githubusercontent.com/Glaicer/glossa/main/update.sh)`
-- `glossa update`
-- tray menu: `Update`
-
-The updater downloads the latest stable release, verifies its checksum, replaces the Glossa binary and bundled assets, and restarts `glossa.service`.
-
-## Uninstalling
-
-Run the interactive uninstaller:
-
-```
-bash <(wget -qO- https://raw.githubusercontent.com/Glaicer/glossa/main/uninstall.sh)
-```
-
-The script will:
-
-- stop and remove the `glossa` and `dotool` user services
-- remove the Glossa binary and bundled assets
-- remove the generated Glossa config, or restore the most recent config backup if one exists
-- keep a non-installer-managed `~/.config/glossa/config.toml` in place
-- optionally remove `wl-clipboard` and `dotool`
-
-## Why I built this
-
-I started Glossa because speech-to-text on GNOME Wayland still feels more awkward than it should.
-
-Here are the issues I kept running into with other tools:
-
-- On Wayland, apps usually cannot register true global hotkeys directly, so you often end up depending on desktop portal support.
-- A popular library `wtype` fails in Wayland throwing: "Compositor does not support the virtual keyboard protocol".
-- Another popular library `ydotool` throws `ydotoold backend unavailable (may have latency+delay issues)`.
-- You can fix `ydotool` installation, but it still has issues: it doesn't support many non-English keyboard layouts and it has broken keybindings which prevents pasting from the clipboard via shortcuts.
-- `dotool` has worked for me, however it is shipped as the source code and must be compiled manually.
-- There are some very decent apps with local (gguf) STT models support, however these models are slower and less accurate on laptops than cloud APIs.
-
-Glossa is my attempt to make this whole workflow simpler and more reliable on Ubuntu GNOME Wayland.
-
-## Requirements
-
-Glossa depends on:
-
-- `wl-copy`
-- `dotool`
-
-The installer checks for both and installs them automatically.
-
 ## Development
 
 For local development, use the example config and standard Cargo commands:
@@ -205,24 +213,3 @@ cargo run --package glossa-bin -- --config contrib/examples/config.toml daemon
 ```
 
 The example config already points at the checked-out `contrib/assets/...` files, so it is meant for running from the repository rather than from an installed release.
-
-To build the release artifacts that `install.sh` expects, run:
-
-```bash
-./build-release-tarball.sh
-```
-
-The script will prompt for a release version, build `glossa-bin` in release mode, render the version-pinned updater from `contrib/release/glossa-update.sh`, bundle the `glossa` binary, `update.sh`, tray icons, sounds, and `dotool` payload, and write everything under `target/release/github/<version>/`:
-
-- `glossa-linux-x86_64.tar.gz`
-- `glossa-update.sh`
-- `sha256sums.txt`
-
-## Roadmap
-
-Planned features:
-
-- settings GUI
-- clipboard restore after paste
-- direct input support
-- FLAC recording
