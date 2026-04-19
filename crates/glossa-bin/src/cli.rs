@@ -4,7 +4,11 @@ use clap::{Parser, Subcommand};
 
 /// Command-line interface for the Glossa daemon and helper tools.
 #[derive(Debug, Parser)]
-#[command(name = "glossa", about = "Speech-to-text daemon for GNOME Wayland")]
+#[command(
+    name = "glossa",
+    about = "Speech-to-text daemon for GNOME Wayland",
+    version
+)]
 pub struct Cli {
     /// Path to the TOML configuration file.
     #[arg(long, global = true)]
@@ -36,6 +40,7 @@ pub enum CtlCommand {
 
 #[cfg(test)]
 mod tests {
+    use clap::error::ErrorKind;
     use clap::Parser;
 
     use super::Cli;
@@ -68,5 +73,13 @@ mod tests {
             Cli::try_parse_from(["glossa", "update"]).expect("update subcommand should parse");
 
         assert!(matches!(cli.command, super::Command::Update));
+    }
+
+    #[test]
+    fn version_flag_should_be_available() {
+        let error = Cli::try_parse_from(["glossa", "--version"])
+            .expect_err("version flag should short-circuit parsing");
+
+        assert_eq!(error.kind(), ErrorKind::DisplayVersion);
     }
 }

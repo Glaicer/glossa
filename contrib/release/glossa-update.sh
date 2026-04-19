@@ -78,7 +78,13 @@ installed_version() {
     return 0
   fi
 
-  version_output="$("${INSTALLED_GLOSSA_PATH}" --version)"
+  version_output="$("${INSTALLED_GLOSSA_PATH}" --version 2>/dev/null || true)"
+
+  if [[ -z "${version_output}" ]]; then
+    printf 'unknown\n'
+    return 0
+  fi
+
   printf '%s\n' "${version_output##* }"
 }
 
