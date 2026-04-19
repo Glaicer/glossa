@@ -13,6 +13,7 @@ async fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Command::Daemon => cmd::daemon::run(cli.config).await,
+        Command::Service { service } => cmd::service::run(service).await,
         Command::Ctl { ctl } => cmd::ctl::run(cli.config, ctl).await,
         Command::Doctor => cmd::doctor::run(cli.config).await,
         Command::Status => cmd::status::run(cli.config).await,

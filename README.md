@@ -20,6 +20,7 @@ I personally recommend using [Groq](https://groq.com/) as it offers the followin
 - Supports both toggle and push-to-talk modes.
 - Works with Groq, OpenAI, and other OpenAI-compatible STT providers (including self-hosted setups).
 - Easily configurable via `config.toml`.
+- Manage the installed user service with `glossa service start`, `stop`, and `restart`.
 - Pastes using standard clipboard shortcuts such as `Ctrl+V`, `Ctrl+Shift+V`, or `Shift+Insert`, which helps with non-English input without switching keyboard layouts.
 
 ## Installation
@@ -34,6 +35,20 @@ The script will automatically install runtime dependencies if missing and config
 
 You may need to log out and back in before paste works if `dotool` was installed during the script run.
 
+## CLI Commands
+
+Glossa provides these CLI commands:
+
+- `glossa daemon` runs the daemon in the foreground. It requires `--config <path>`.
+- `glossa service start` starts the installed `glossa` systemd user service.
+- `glossa service stop` stops the installed `glossa` systemd user service.
+- `glossa service restart` restarts the installed `glossa` systemd user service.
+- `glossa ctl toggle` sends a toggle-recording command to the running daemon over IPC.
+- `glossa ctl shutdown` asks the running daemon to shut down over IPC.
+- `glossa doctor` runs environment and configuration diagnostics.
+- `glossa status` prints the current daemon status reported over IPC.
+- `glossa update` downloads and installs the latest release.
+
 ## Updating
 
 Update an existing installation in any of these ways:
@@ -43,6 +58,22 @@ Update an existing installation in any of these ways:
 - tray menu: `Update`
 
 The updater downloads the latest stable release, verifies its checksum, replaces the Glossa binary and bundled assets, and restarts `glossa.service`.
+
+## Uninstalling
+
+Run the interactive uninstaller:
+
+```
+bash <(wget -qO- https://raw.githubusercontent.com/Glaicer/glossa/main/uninstall.sh)
+```
+
+The script will:
+
+- stop and remove the `glossa` and `dotool` user services
+- remove the Glossa binary and bundled assets
+- remove the generated Glossa config, or restore the most recent config backup if one exists
+- keep a non-installer-managed `~/.config/glossa/config.toml` in place
+- optionally remove `wl-clipboard` and `dotool`
 
 ## Why I built this
 

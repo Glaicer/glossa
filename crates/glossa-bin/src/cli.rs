@@ -22,6 +22,10 @@ pub struct Cli {
 #[derive(Debug, Subcommand)]
 pub enum Command {
     Daemon,
+    Service {
+        #[command(subcommand)]
+        service: ServiceCommand,
+    },
     Ctl {
         #[command(subcommand)]
         ctl: CtlCommand,
@@ -38,12 +42,20 @@ pub enum CtlCommand {
     Shutdown,
 }
 
+/// Subcommands for managing the installed systemd user service.
+#[derive(Debug, Clone, Copy, Subcommand, PartialEq, Eq)]
+pub enum ServiceCommand {
+    Start,
+    Stop,
+    Restart,
+}
+
 #[cfg(test)]
 mod tests {
     use clap::error::ErrorKind;
     use clap::Parser;
 
-    use super::Cli;
+    use super::{Cli, ServiceCommand};
 
     #[test]
     fn config_flag_after_subcommand_should_parse() {
@@ -73,6 +85,45 @@ mod tests {
             Cli::try_parse_from(["glossa", "update"]).expect("update subcommand should parse");
 
         assert!(matches!(cli.command, super::Command::Update));
+    }
+
+    #[test]
+    fn service_start_subcommand_should_parse() {
+        let cli = Cli::try_parse_from(["glossa", "service", "start"])
+            .expect("service start subcommand should parse");
+
+        assert!(matches!(
+            cli.command,
+            super::Command::Service {
+                service: ServiceCommand::Start
+            }
+        ));
+    }
+
+    #[test]
+    fn service_stop_subcommand_should_parse() {
+        let cli = Cli::try_parse_from(["glossa", "service", "stop"])
+            .expect("service stop subcommand should parse");
+
+        assert!(matches!(
+            cli.command,
+            super::Command::Service {
+                service: ServiceCommand::Stop
+            }
+        ));
+    }
+
+    #[test]
+    fn service_restart_subcommand_should_parse() {
+        let cli = Cli::try_parse_from(["glossa", "service", "restart"])
+            .expect("service restart subcommand should parse");
+
+        assert!(matches!(
+            cli.command,
+            super::Command::Service {
+                service: ServiceCommand::Restart
+            }
+        ));
     }
 
     #[test]
