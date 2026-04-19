@@ -18,6 +18,7 @@ readonly GLOSSA_SERVICE_NAME="glossa.service"
 
 tmpdir=""
 glossa_bundle_dir=""
+command_name="install"
 
 cleanup() {
   if [[ -n "${tmpdir}" && -d "${tmpdir}" ]]; then
@@ -33,6 +34,14 @@ log() {
 die() {
   printf 'Error: %s\n' "$*" >&2
   exit 1
+}
+
+emit_result() {
+  local status="$1"
+  local version="$2"
+
+  printf 'GLOSSA_UPDATE_STATUS=%s\n' "${status}"
+  printf 'GLOSSA_UPDATE_VERSION=%s\n' "${version}"
 }
 
 require_command() {
@@ -170,6 +179,18 @@ restart_service() {
   systemctl --user restart "${GLOSSA_SERVICE_NAME}"
 }
 
+parse_args() {
+  command_name="${1:-install}"
+
+  case "${command_name}" in
+    check | install)
+      ;;
+    *)
+      die "Unsupported updater command '${command_name}'. Expected 'check' or 'install'."
+      ;;
+  esac
+}
+
 main() {
   require_command find
   require_command install
@@ -179,6 +200,7 @@ main() {
   require_command tar
   require_command wget
 
+  parse_args "${1:-}"
   assert_installed_layout
 
   local current_version
@@ -186,6 +208,12 @@ main() {
 
   if [[ "${current_version}" == "${RELEASE_VERSION}" ]]; then
     log "Glossa ${RELEASE_VERSION} is already installed."
+    emit_result "up-to-date" "${RELEASE_VERSION}"
+    exit 0
+  fi
+
+  if [[ "${command_name}" == "check" ]]; then
+    emit_result "available" "${RELEASE_VERSION}"
     exit 0
   fi
 
@@ -194,6 +222,7 @@ main() {
   install_glossa_bundle "${glossa_bundle_dir}"
   restart_service
   log "Update complete."
+  emit_result "updated" "${RELEASE_VERSION}"
 }
 
 if [[ -n "${BASH_SOURCE[0]:-}" && "${BASH_SOURCE[0]}" == "$0" ]]; then

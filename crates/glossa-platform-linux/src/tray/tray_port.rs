@@ -39,7 +39,7 @@ use glossa_core::{AppCommand, CommandOrigin, InputBackend, InputConfig, InputMod
 
 use crate::portal::{portal_shortcut_description, PORTAL_APP_ID, PORTAL_SHORTCUT_ID};
 use crate::shortcut_capture::begin_shortcut_capture;
-use crate::updater::spawn_local_updater;
+use crate::updater::{check_for_update, install_update, UpdaterStatus};
 
 const TRAY_THREAD_NAME: &str = "glossa-tray";
 
@@ -399,13 +399,76 @@ impl TrayRuntime {
     }
 
     fn handle_update(&self) {
-        if let Err(error) = spawn_local_updater() {
-            warn!(error = %error, "failed to launch updater from tray");
-            show_message_dialog(
-                "Update",
-                "Could not start update.sh. Ensure Glossa was installed with the bundled updater script.",
-                MessageType::Error,
-            );
+        let check_result = match check_for_update() {
+            Ok(result) => result,
+            Err(error) => {
+                warn!(error = %error, "failed to check for updates from tray");
+                show_message_dialog("Update", &error.to_string(), MessageType::Error);
+                return;
+            }
+        };
+
+        match check_result.status {
+            UpdaterStatus::UpToDate => {
+                show_message_dialog(
+                    "Update",
+                    "The latest version is already installed.",
+                    MessageType::Info,
+                );
+            }
+            UpdaterStatus::Available => {
+                let confirmed = show_confirmation_dialog(
+                    "Update",
+                    &format!(
+                        "A new version {} is available.\n\nDo you want to install it now?",
+                        check_result.version
+                    ),
+                );
+
+                if !confirmed {
+                    return;
+                }
+
+                match install_update() {
+                    Ok(result) if result.status == UpdaterStatus::Updated => {
+                        show_message_dialog(
+                            "Update",
+                            &format!(
+                                "New version {} installed successfully.",
+                                result.version
+                            ),
+                            MessageType::Info,
+                        );
+                    }
+                    Ok(result) if result.status == UpdaterStatus::UpToDate => {
+                        show_message_dialog(
+                            "Update",
+                            "The latest version is already installed.",
+                            MessageType::Info,
+                        );
+                    }
+                    Ok(result) => {
+                        warn!(?result, "unexpected updater result after install");
+                        show_message_dialog(
+                            "Update",
+                            "The updater returned an unexpected result.",
+                            MessageType::Error,
+                        );
+                    }
+                    Err(error) => {
+                        warn!(error = %error, "failed to install update from tray");
+                        show_message_dialog("Update", &error.to_string(), MessageType::Error);
+                    }
+                }
+            }
+            UpdaterStatus::Updated => {
+                warn!("update check unexpectedly returned 'updated' status");
+                show_message_dialog(
+                    "Update",
+                    "The updater returned an unexpected result.",
+                    MessageType::Error,
+                );
+            }
         }
     }
 
@@ -658,6 +721,21 @@ fn show_message_dialog(title: &str, message: &str, message_type: MessageType) {
     dialog.set_title(title);
     let _ = dialog.run();
     dialog.close();
+}
+
+fn show_confirmation_dialog(title: &str, message: &str) -> bool {
+    let dialog = MessageDialog::new(
+        None::<&Window>,
+        DialogFlags::MODAL,
+        MessageType::Question,
+        ButtonsType::YesNo,
+        message,
+    );
+    dialog.set_title(title);
+    let response = dialog.run();
+    dialog.close();
+
+    response == ResponseType::Yes
 }
 
 impl Drop for BestEffortTrayPort {
