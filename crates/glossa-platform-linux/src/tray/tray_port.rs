@@ -37,6 +37,7 @@ use glossa_app::{
 };
 use glossa_core::{AppCommand, CommandOrigin, InputBackend, InputConfig, InputMode, UiConfig};
 
+use crate::dialog::show_message_dialog;
 use crate::portal::{portal_shortcut_description, PORTAL_APP_ID, PORTAL_SHORTCUT_ID};
 use crate::shortcut_capture::begin_shortcut_capture;
 use crate::updater::{check_for_update, install_update, UpdaterStatus};
@@ -365,7 +366,7 @@ impl TrayRuntime {
             Ok(result) => result,
             Err(error) => {
                 warn!(error = %error, "failed to capture shortcut from tray");
-                show_message_dialog("Change shortcut", &error, MessageType::Error);
+                let _ = show_message_dialog("Change shortcut", &error, MessageType::Error);
                 return;
             }
         };
@@ -377,7 +378,7 @@ impl TrayRuntime {
 
         if let Err(error) = write_shortcut_override(&binding, &shortcut) {
             warn!(error = %error, shortcut = %shortcut, "failed to update GNOME shortcut override");
-            show_message_dialog("Change shortcut", &error, MessageType::Error);
+            let _ = show_message_dialog("Change shortcut", &error, MessageType::Error);
             return;
         }
 
@@ -390,7 +391,7 @@ impl TrayRuntime {
             origin: CommandOrigin::TrayMenu,
         }) {
             warn!(error = %error, "failed to restart daemon after shortcut change");
-            show_message_dialog(
+            let _ = show_message_dialog(
                 "Change shortcut",
                 "The shortcut was stored, but the daemon could not restart. Restart it manually.",
                 MessageType::Warning,
@@ -403,14 +404,14 @@ impl TrayRuntime {
             Ok(result) => result,
             Err(error) => {
                 warn!(error = %error, "failed to check for updates from tray");
-                show_message_dialog("Update", &error.to_string(), MessageType::Error);
+                let _ = show_message_dialog("Update", &error.to_string(), MessageType::Error);
                 return;
             }
         };
 
         match check_result.status {
             UpdaterStatus::UpToDate => {
-                show_message_dialog(
+                let _ = show_message_dialog(
                     "Update",
                     "The latest version is already installed.",
                     MessageType::Info,
@@ -431,7 +432,7 @@ impl TrayRuntime {
 
                 match install_update() {
                     Ok(result) if result.status == UpdaterStatus::Updated => {
-                        show_message_dialog(
+                        let _ = show_message_dialog(
                             "Update",
                             &format!(
                                 "New version {} installed successfully.",
@@ -441,7 +442,7 @@ impl TrayRuntime {
                         );
                     }
                     Ok(result) if result.status == UpdaterStatus::UpToDate => {
-                        show_message_dialog(
+                        let _ = show_message_dialog(
                             "Update",
                             "The latest version is already installed.",
                             MessageType::Info,
@@ -449,7 +450,7 @@ impl TrayRuntime {
                     }
                     Ok(result) => {
                         warn!(?result, "unexpected updater result after install");
-                        show_message_dialog(
+                        let _ = show_message_dialog(
                             "Update",
                             "The updater returned an unexpected result.",
                             MessageType::Error,
@@ -457,13 +458,13 @@ impl TrayRuntime {
                     }
                     Err(error) => {
                         warn!(error = %error, "failed to install update from tray");
-                        show_message_dialog("Update", &error.to_string(), MessageType::Error);
+                        let _ = show_message_dialog("Update", &error.to_string(), MessageType::Error);
                     }
                 }
             }
             UpdaterStatus::Updated => {
                 warn!("update check unexpectedly returned 'updated' status");
-                show_message_dialog(
+                let _ = show_message_dialog(
                     "Update",
                     "The updater returned an unexpected result.",
                     MessageType::Error,
@@ -708,19 +709,6 @@ fn shortcut_override_value(binding: &ShortcutBindingConfig, shortcut: &str) -> S
 
 fn escape_dconf_string(value: &str) -> String {
     value.replace('\\', "\\\\").replace('\'', "\\'")
-}
-
-fn show_message_dialog(title: &str, message: &str, message_type: MessageType) {
-    let dialog = MessageDialog::new(
-        None::<&Window>,
-        DialogFlags::MODAL,
-        message_type,
-        ButtonsType::Close,
-        message,
-    );
-    dialog.set_title(title);
-    let _ = dialog.run();
-    dialog.close();
 }
 
 fn show_confirmation_dialog(title: &str, message: &str) -> bool {

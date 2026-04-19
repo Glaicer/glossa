@@ -1,6 +1,7 @@
 //! Linux-specific adapters for IPC, clipboard, paste, diagnostics, and portals.
 
 pub mod clipboard;
+pub mod dialog;
 pub mod doctor;
 pub mod ipc;
 pub mod paste;
