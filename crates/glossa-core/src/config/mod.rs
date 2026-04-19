@@ -253,8 +253,7 @@ mod tests {
 
     #[test]
     fn secret_source_should_accept_empty_literal() {
-        let source =
-            SecretSource::try_from(String::new()).expect("empty secret should parse");
+        let source = SecretSource::try_from(String::new()).expect("empty secret should parse");
         assert_eq!(source, SecretSource::Empty);
         assert_eq!(source.describe(), "empty");
         assert_eq!(source.resolve().expect("empty secret should resolve"), "");
@@ -273,7 +272,12 @@ mod tests {
         };
 
         assert!(config.validate().is_ok());
-        assert_eq!(config.resolve_api_key().expect("empty secret should resolve"), "");
+        assert_eq!(
+            config
+                .resolve_api_key()
+                .expect("empty secret should resolve"),
+            ""
+        );
     }
 
     #[test]

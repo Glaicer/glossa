@@ -18,7 +18,6 @@ use evdev::{Device, EventSummary, EventType, KeyCode};
 use tokio::sync::oneshot;
 use tracing::{debug, warn};
 
-
 pub(crate) fn parse_accelerator_keys(trigger_description: &str) -> Option<HashSet<KeyCode>> {
     let accel = trigger_description
         .strip_prefix("Press ")
@@ -38,7 +37,10 @@ pub(crate) fn parse_accelerator_keys(trigger_description: &str) -> Option<HashSe
         if let Some(key) = modifier_to_evdev(modifier) {
             keys.insert(key);
         } else {
-            warn!(modifier, "unknown modifier in accelerator; evdev fallback may be incomplete");
+            warn!(
+                modifier,
+                "unknown modifier in accelerator; evdev fallback may be incomplete"
+            );
         }
         remaining = &remaining[end + 1..];
     }
@@ -48,7 +50,10 @@ pub(crate) fn parse_accelerator_keys(trigger_description: &str) -> Option<HashSe
         if let Some(key) = key_name_to_evdev(main_key) {
             keys.insert(key);
         } else {
-            warn!(key = main_key, "unknown key in accelerator; evdev fallback may be incomplete");
+            warn!(
+                key = main_key,
+                "unknown key in accelerator; evdev fallback may be incomplete"
+            );
             return None;
         }
     }
@@ -57,7 +62,11 @@ pub(crate) fn parse_accelerator_keys(trigger_description: &str) -> Option<HashSe
         return None;
     }
 
-    debug!(accelerator = accel, ?keys, "parsed accelerator for evdev monitoring");
+    debug!(
+        accelerator = accel,
+        ?keys,
+        "parsed accelerator for evdev monitoring"
+    );
     Some(keys)
 }
 
@@ -152,25 +161,19 @@ fn open_keyboard_devices() -> Result<Vec<Device>, String> {
     let mut devices = Vec::new();
 
     let input_dir = PathBuf::from("/dev/input");
-    let entries = std::fs::read_dir(&input_dir)
-        .map_err(|e| format!("cannot read /dev/input: {e}"))?;
+    let entries =
+        std::fs::read_dir(&input_dir).map_err(|e| format!("cannot read /dev/input: {e}"))?;
 
     for entry in entries.flatten() {
         let path = entry.path();
-        let name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("");
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
         if !name.starts_with("event") {
             continue;
         }
 
         match Device::open(&path) {
             Ok(device) => {
-                if device
-                    .supported_events()
-                    .contains(EventType::KEY)
-                {
+                if device.supported_events().contains(EventType::KEY) {
                     if device
                         .supported_keys()
                         .is_some_and(|keys| keys.contains(KeyCode::KEY_A))

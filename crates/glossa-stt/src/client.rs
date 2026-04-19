@@ -75,9 +75,10 @@ impl SttClient for HttpSttClient {
             request = request.bearer_auth(&self.api_key);
         }
 
-        let response = request.multipart(form).send().await.map_err(|error| {
-            AppError::message(format!("transcription request failed: {error}"))
-        })?;
+        let response =
+            request.multipart(form).send().await.map_err(|error| {
+                AppError::message(format!("transcription request failed: {error}"))
+            })?;
 
         if !response.status().is_success() {
             return Err(AppError::message(format!(
