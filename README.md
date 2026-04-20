@@ -2,7 +2,9 @@
   <img src="resources/glossa-logo.png" alt="glossa" height="80">
 </p>
 
-> Press a hotkey, speak, and drop the transcription straight into whatever field is focused.
+<p align="left" style="border-left: 3px solid; padding-left: 12px; margin-left: 12px; font-size: 16px; font-weight: 600; margin-block: 20px">
+  <em>Press a hotkey, speak, and drop the transcription straight into whatever field is focused</em>
+</p>
 
 Glossa is a free, open source speech-to-text daemon for Ubuntu on GNOME Wayland. It records audio from your microphone, sends it to a speech-to-text provider, copies the result to the clipboard, and pastes it into the active window.
 
