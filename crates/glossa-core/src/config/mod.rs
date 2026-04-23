@@ -199,6 +199,7 @@ impl Default for AppConfig {
             audio: AudioConfig::default(),
             paste: PasteConfig {
                 mode: PasteMode::CtrlV,
+                append_space: false,
                 clipboard_command: "wl-copy".into(),
                 type_command: "dotoolc".into(),
             },
@@ -216,6 +217,11 @@ mod tests {
     #[test]
     fn default_config_should_use_dotoolc_for_paste_command() {
         assert_eq!(AppConfig::default().paste.type_command, "dotoolc");
+    }
+
+    #[test]
+    fn default_config_should_disable_append_space() {
+        assert!(!AppConfig::default().paste.append_space);
     }
 
     #[test]
@@ -346,6 +352,7 @@ max_duration_sec = 120
 
 [paste]
 mode = "ctrl-shift-v"
+append_space = false
 clipboard_command = "wl-copy"
 type_command = "dotoolc"
 

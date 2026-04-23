@@ -56,6 +56,8 @@ Glossa is my attempt to make this whole workflow simpler and more reliable on Ub
 
 Planned features:
 
+- append trailing space after paste for continuous dictation
+- cancelling recording via Esc key
 - clipboard restore after paste
 - direct input support
 - FLAC recording

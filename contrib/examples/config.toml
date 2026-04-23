@@ -41,6 +41,8 @@ max_duration_sec = 120
 [paste]
 # Selects which keyboard shortcut `dotool` should emulate for paste; options: "ctrl-v", "ctrl-shift-v", "shift-insert".
 mode = "shift-insert"
+# Appends one trailing space to the pasted transcription for continuous dictation; options: true, false.
+append_space = false
 # Sets the clipboard command used to place text into the Wayland clipboard; options: "wl-copy".
 clipboard_command = "wl-copy"
 # Sets the typing/paste emulation command; options: "dotoolc".

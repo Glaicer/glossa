@@ -6,6 +6,8 @@ use crate::{CoreError, PasteMode};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PasteConfig {
     pub mode: PasteMode,
+    #[serde(default)]
+    pub append_space: bool,
     pub clipboard_command: String,
     pub type_command: String,
 }

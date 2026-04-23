@@ -26,6 +26,8 @@ const PROVIDER_MODEL_TOOLTIP: &str =
 const PROVIDER_API_KEY_TOOLTIP: &str =
     "Sets the provider API key source or literal secret. Values such as env:VAR are supported.";
 const PASTE_MODE_TOOLTIP: &str = "Selects which keyboard shortcut dotool should emulate for paste.";
+const APPEND_SPACE_TOOLTIP: &str =
+    "Appends one trailing space to the pasted transcription for continuous dictation.";
 const UI_THEME_TOOLTIP: &str = "Selects which tray icon set to use. Options: dark or light.";
 
 pub(super) fn edit_settings(current: &SettingsValues) -> Result<Option<SettingsValues>, AppError> {
@@ -132,6 +134,16 @@ pub(super) fn edit_settings(current: &SettingsValues) -> Result<Option<SettingsV
         PASTE_MODE_TOOLTIP,
     );
     attach_row(&paste_grid, 0, "Mode", PASTE_MODE_TOOLTIP, &paste_mode);
+    let append_space = CheckButton::new();
+    append_space.set_active(current.append_space);
+    append_space.set_tooltip_text(Some(APPEND_SPACE_TOOLTIP));
+    attach_row(
+        &paste_grid,
+        1,
+        "Append space",
+        APPEND_SPACE_TOOLTIP,
+        &append_space,
+    );
     container.pack_start(&wrap_section("Paste", &paste_grid), false, false, 0);
 
     let ui_grid = create_section_grid();
@@ -162,6 +174,7 @@ pub(super) fn edit_settings(current: &SettingsValues) -> Result<Option<SettingsV
             provider_api_key: api_key.text().to_string(),
             paste_mode: parse_paste_mode(&selected_id(&paste_mode, "paste mode")?)
                 .ok_or_else(|| AppError::message("paste mode selection is invalid"))?,
+            append_space: append_space.is_active(),
             ui_theme: parse_ui_theme(&selected_id(&theme, "UI theme")?)
                 .ok_or_else(|| AppError::message("UI theme selection is invalid"))?,
         })

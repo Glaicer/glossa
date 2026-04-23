@@ -625,6 +625,7 @@ max_duration_sec = 120
 
 [paste]
 mode = "shift-insert"
+append_space = false
 clipboard_command = "${wl_copy_path}"
 type_command = "${dotoolc_path}"
 

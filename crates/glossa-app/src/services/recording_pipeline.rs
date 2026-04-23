@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{borrow::Cow, sync::Arc};
 
 use tokio::{sync::mpsc, task};
 use tracing::{info, warn};
@@ -149,12 +149,18 @@ async fn paste_cycle(
     session_id: SessionId,
     text: &str,
 ) -> Result<CycleOutcome, AppError> {
+    let clipboard_text = if deps.config.paste.append_space && !text.is_empty() {
+        Cow::Owned(format!("{text} "))
+    } else {
+        Cow::Borrowed(text)
+    };
+
     info!(
         %session_id,
-        text_len = text.len(),
+        text_len = clipboard_text.len(),
         "writing transcription to clipboard"
     );
-    deps.clipboard.set_text(text).await?;
+    deps.clipboard.set_text(clipboard_text.as_ref()).await?;
     info!(
         %session_id,
         paste_mode = ?deps.config.paste.mode,
@@ -165,5 +171,166 @@ async fn paste_cycle(
         Err(error) => Ok(CycleOutcome::CompletedWithWarning(format!(
             "paste failed after clipboard write for session {session_id}: {error}"
         ))),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Mutex};
+
+    use async_trait::async_trait;
+    use camino::Utf8PathBuf;
+
+    use glossa_core::{AudioFormat, CapturedAudio, PasteMode, SessionId};
+
+    use super::{paste_cycle, CycleOutcome, PipelineDependencies};
+    use crate::{
+        ports::{ClipboardWriter, PasteBackend, SilenceTrimmer, SttClient, TempStore},
+        AppError,
+    };
+
+    struct RecordingClipboard {
+        text: Mutex<Vec<String>>,
+    }
+
+    impl RecordingClipboard {
+        fn new() -> Self {
+            Self {
+                text: Mutex::new(Vec::new()),
+            }
+        }
+
+        fn recorded(&self) -> Vec<String> {
+            self.text.lock().expect("clipboard lock").clone()
+        }
+    }
+
+    #[async_trait]
+    impl ClipboardWriter for RecordingClipboard {
+        async fn set_text(&self, text: &str) -> Result<(), AppError> {
+            self.text.lock().expect("clipboard lock").push(text.to_owned());
+            Ok(())
+        }
+    }
+
+    struct RecordingPaste {
+        modes: Mutex<Vec<PasteMode>>,
+    }
+
+    impl RecordingPaste {
+        fn new() -> Self {
+            Self {
+                modes: Mutex::new(Vec::new()),
+            }
+        }
+
+        fn recorded(&self) -> Vec<PasteMode> {
+            self.modes.lock().expect("paste lock").clone()
+        }
+    }
+
+    #[async_trait]
+    impl PasteBackend for RecordingPaste {
+        async fn paste(&self, mode: PasteMode) -> Result<(), AppError> {
+            self.modes.lock().expect("paste lock").push(mode);
+            Ok(())
+        }
+    }
+
+    struct NoopTrimmer;
+
+    #[async_trait]
+    impl SilenceTrimmer for NoopTrimmer {
+        async fn trim(&self, input: &CapturedAudio) -> Result<CapturedAudio, AppError> {
+            Ok(input.clone())
+        }
+    }
+
+    struct NoopSttClient;
+
+    #[async_trait]
+    impl SttClient for NoopSttClient {
+        fn provider_name(&self) -> &'static str {
+            "test"
+        }
+
+        async fn transcribe(&self, _audio: &CapturedAudio) -> Result<String, AppError> {
+            Ok(String::new())
+        }
+    }
+
+    struct NoopTempStore;
+
+    #[async_trait]
+    impl TempStore for NoopTempStore {
+        async fn create_recording_path(
+            &self,
+            _session_id: SessionId,
+            _format: AudioFormat,
+        ) -> Result<Utf8PathBuf, AppError> {
+            Err(AppError::message("not used in paste_cycle tests"))
+        }
+
+        async fn cleanup_session(&self, _session_id: SessionId) -> Result<(), AppError> {
+            Ok(())
+        }
+
+        async fn cleanup_stale_files(&self) -> Result<(), AppError> {
+            Ok(())
+        }
+    }
+
+    fn test_dependencies(
+        append_space: bool,
+    ) -> (
+        PipelineDependencies,
+        Arc<RecordingClipboard>,
+        Arc<RecordingPaste>,
+    ) {
+        let clipboard = Arc::new(RecordingClipboard::new());
+        let paste = Arc::new(RecordingPaste::new());
+        let mut config = glossa_core::AppConfig::default();
+        config.paste.append_space = append_space;
+
+        (
+            PipelineDependencies {
+                config: Arc::new(config),
+                trimmer: Arc::new(NoopTrimmer),
+                stt_client: Arc::new(NoopSttClient),
+                clipboard: clipboard.clone(),
+                paste: paste.clone(),
+                temp_store: Arc::new(NoopTempStore),
+            },
+            clipboard,
+            paste,
+        )
+    }
+
+    #[tokio::test]
+    async fn paste_cycle_should_append_a_space_before_writing_to_clipboard_when_enabled() {
+        let (deps, clipboard, paste) = test_dependencies(true);
+        let session_id = SessionId::new();
+
+        let outcome = paste_cycle(&deps, session_id, "hello")
+            .await
+            .expect("paste cycle should succeed");
+
+        assert!(matches!(outcome, CycleOutcome::Completed));
+        assert_eq!(clipboard.recorded(), vec!["hello ".to_owned()]);
+        assert_eq!(paste.recorded(), vec![PasteMode::CtrlV]);
+    }
+
+    #[tokio::test]
+    async fn paste_cycle_should_leave_text_unchanged_when_append_space_is_disabled() {
+        let (deps, clipboard, paste) = test_dependencies(false);
+        let session_id = SessionId::new();
+
+        let outcome = paste_cycle(&deps, session_id, "hello")
+            .await
+            .expect("paste cycle should succeed");
+
+        assert!(matches!(outcome, CycleOutcome::Completed));
+        assert_eq!(clipboard.recorded(), vec!["hello".to_owned()]);
+        assert_eq!(paste.recorded(), vec![PasteMode::CtrlV]);
     }
 }

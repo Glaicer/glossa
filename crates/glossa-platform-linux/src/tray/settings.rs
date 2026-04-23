@@ -13,6 +13,7 @@ pub(super) struct SettingsValues {
     pub(super) provider_model: String,
     pub(super) provider_api_key: String,
     pub(super) paste_mode: PasteMode,
+    pub(super) append_space: bool,
     pub(super) ui_theme: UiTheme,
 }
 
@@ -27,6 +28,7 @@ impl SettingsValues {
             provider_model: config.provider.model.clone(),
             provider_api_key: String::from(config.provider.api_key.clone()),
             paste_mode: config.paste.mode,
+            append_space: config.paste.append_space,
             ui_theme: config.ui.theme,
         }
     }
@@ -37,6 +39,10 @@ pub(super) fn apply_settings_to_config(
     settings: &SettingsValues,
 ) -> Result<String, AppError> {
     let updates = build_updates(settings);
+    let append_space_update = updates
+        .iter()
+        .find(|update| update.section == "paste" && update.key == "append_space")
+        .expect("paste.append_space update must exist");
     let mut seen = BTreeSet::new();
     let mut current_section = None::<&str>;
     let mut updated = String::with_capacity(source.len() + 128);
@@ -45,6 +51,12 @@ pub(super) fn apply_settings_to_config(
         let (line, newline) = split_line_ending(raw_line);
 
         if let Some(section) = parse_section_name(line) {
+            maybe_insert_missing_append_space(
+                current_section,
+                append_space_update,
+                &mut seen,
+                &mut updated,
+            );
             current_section = Some(section);
             updated.push_str(line);
             updated.push_str(newline);
@@ -68,6 +80,13 @@ pub(super) fn apply_settings_to_config(
         updated.push_str(newline);
     }
 
+    maybe_insert_missing_append_space(
+        current_section,
+        append_space_update,
+        &mut seen,
+        &mut updated,
+    );
+
     let missing: Vec<String> = updates
         .iter()
         .filter(|update| !seen.contains(&(update.section, update.key)))
@@ -82,6 +101,44 @@ pub(super) fn apply_settings_to_config(
 
     AppConfig::from_toml_str(&updated)?;
     Ok(updated)
+}
+
+fn maybe_insert_missing_append_space(
+    current_section: Option<&str>,
+    update: &SettingUpdate,
+    seen: &mut BTreeSet<(&'static str, &'static str)>,
+    updated: &mut String,
+) {
+    if current_section == Some("paste") && !seen.contains(&(update.section, update.key)) {
+        let trailing_blank_lines = take_trailing_blank_lines(updated);
+        updated.push_str(update.key);
+        updated.push_str(" = ");
+        updated.push_str(&update.value);
+        updated.push('\n');
+        updated.push_str(&trailing_blank_lines);
+        seen.insert((update.section, update.key));
+    }
+}
+
+fn take_trailing_blank_lines(updated: &mut String) -> String {
+    let mut trailing = String::new();
+
+    loop {
+        let Some(line_end) = updated.rfind('\n') else {
+            break;
+        };
+        let line_start = updated[..line_end].rfind('\n').map_or(0, |index| index + 1);
+        let line = &updated[line_start..line_end];
+
+        if !line.trim().is_empty() {
+            break;
+        }
+
+        let removed = updated.split_off(line_start);
+        trailing.insert_str(0, &removed);
+    }
+
+    trailing
 }
 
 pub(super) fn write_settings_to_config(
@@ -173,7 +230,7 @@ pub(super) fn parse_ui_theme(value: &str) -> Option<UiTheme> {
     }
 }
 
-fn build_updates(settings: &SettingsValues) -> [SettingUpdate; 9] {
+fn build_updates(settings: &SettingsValues) -> [SettingUpdate; 10] {
     [
         SettingUpdate::new(
             "input",
@@ -191,6 +248,7 @@ fn build_updates(settings: &SettingsValues) -> [SettingUpdate; 9] {
         SettingUpdate::new("provider", "model", quoted(&settings.provider_model)),
         SettingUpdate::new("provider", "api_key", quoted(&settings.provider_api_key)),
         SettingUpdate::new("paste", "mode", quoted(paste_mode_id(settings.paste_mode))),
+        SettingUpdate::new("paste", "append_space", settings.append_space.to_string()),
         SettingUpdate::new("ui", "theme", quoted(ui_theme_id(settings.ui_theme))),
     ]
 }
@@ -347,6 +405,7 @@ max_duration_sec = 120
 
 [paste]
 mode = "ctrl-v"
+append_space = false # keep this comment
 clipboard_command = "wl-copy"
 type_command = "dotoolc"
 
@@ -380,6 +439,7 @@ file = false
             provider_model: "custom-model".into(),
             provider_api_key: "env:CUSTOM_KEY".into(),
             paste_mode: PasteMode::ShiftInsert,
+            append_space: true,
             ui_theme: UiTheme::Light,
         }
     }
@@ -417,6 +477,7 @@ max_duration_sec = 120
 
 [paste]
 mode = "shift-insert"
+append_space = true # keep this comment
 clipboard_command = "wl-copy"
 type_command = "dotoolc"
 
@@ -449,6 +510,66 @@ file = false
             .expect_err("missing mode line should fail");
 
         assert!(error.to_string().contains("[input].mode"));
+    }
+
+    #[test]
+    fn apply_settings_to_config_should_insert_missing_append_space_into_paste_section() {
+        let source = valid_config_source().replace("append_space = false # keep this comment\n", "");
+
+        let updated = apply_settings_to_config(&source, &updated_settings())
+            .expect("missing append_space should be inserted");
+
+        let expected = r#"[input]
+# Backend comment
+backend = "none"
+mode = "toggle"
+shortcut = "<Ctrl><Alt>space"
+
+[control]
+enable_cli = false # keep this comment
+socket_path = "auto"
+
+[provider]
+kind = "openai-compatible"
+base_url = "https://example.com/v1"
+model = "custom-model"
+api_key = "env:CUSTOM_KEY"
+
+[audio]
+work_dir = "auto"
+format = "wav"
+sample_rate_hz = 16000
+channels = 1
+trim_silence = true
+trim_threshold = 500
+min_duration_ms = 150
+max_duration_sec = 120
+
+[paste]
+mode = "shift-insert"
+clipboard_command = "wl-copy"
+type_command = "dotoolc"
+append_space = true
+
+[ui]
+theme = "light"
+tray = true
+idle_icon = "/tmp/idle.png"
+recording_icon = "/tmp/recording.png"
+processing_icon = "/tmp/processing.png"
+idle_dark_icon = "/tmp/idle_dark.png"
+recording_dark_icon = "/tmp/recording_dark.png"
+processing_dark_icon = "/tmp/processing_dark.png"
+start_sound = "/tmp/start.wav"
+stop_sound = "/tmp/stop.wav"
+
+[logging]
+level = "info"
+journal = true
+file = false
+"#;
+
+        assert_eq!(updated, expected);
     }
 
     #[test]
