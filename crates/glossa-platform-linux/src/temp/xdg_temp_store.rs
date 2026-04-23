@@ -11,6 +11,7 @@ use glossa_core::{AudioConfig, AudioFormat, SessionId, WorkDir};
 #[derive(Debug, Clone)]
 pub struct XdgTempStore {
     base_dir: Utf8PathBuf,
+    persist_audio: bool,
 }
 
 impl XdgTempStore {
@@ -29,7 +30,10 @@ impl XdgTempStore {
             WorkDir::Path(path) => path.clone(),
         };
 
-        Ok(Self { base_dir })
+        Ok(Self {
+            base_dir,
+            persist_audio: config.persist_audio,
+        })
     }
 
     #[must_use]
@@ -57,6 +61,10 @@ impl TempStore for XdgTempStore {
     }
 
     async fn cleanup_session(&self, session_id: SessionId) -> Result<(), AppError> {
+        if self.persist_audio {
+            return Ok(());
+        }
+
         fs::create_dir_all(self.base_dir())
             .await
             .map_err(|error| AppError::io("failed to create temp directory", error))?;
@@ -82,6 +90,10 @@ impl TempStore for XdgTempStore {
     }
 
     async fn cleanup_stale_files(&self) -> Result<(), AppError> {
+        if self.persist_audio {
+            return Ok(());
+        }
+
         fs::create_dir_all(self.base_dir())
             .await
             .map_err(|error| AppError::io("failed to create temp directory", error))?;
@@ -103,5 +115,69 @@ impl TempStore for XdgTempStore {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{env, fs as std_fs};
+
+    use glossa_core::{AudioConfig, SessionId, WorkDir};
+
+    use super::*;
+
+    fn test_store(persist_audio: bool) -> XdgTempStore {
+        let base_dir = env::temp_dir().join(format!("glossa-temp-store-test-{}", SessionId::new()));
+        let base_dir =
+            Utf8PathBuf::from_path_buf(base_dir).expect("temp path should be valid utf-8");
+        let config = AudioConfig {
+            work_dir: WorkDir::Path(base_dir),
+            persist_audio,
+            ..AudioConfig::default()
+        };
+
+        XdgTempStore::from_audio_config(&config).expect("temp store should build")
+    }
+
+    #[tokio::test]
+    async fn cleanup_session_should_keep_recordings_when_persist_audio_is_enabled() {
+        let store = test_store(true);
+        let session_id = SessionId::new();
+        let path = store
+            .create_recording_path(session_id, AudioFormat::Wav)
+            .await
+            .expect("recording path should be created");
+        fs::write(&path, b"audio")
+            .await
+            .expect("test recording should be written");
+
+        store
+            .cleanup_session(session_id)
+            .await
+            .expect("cleanup should succeed");
+
+        assert!(path.as_std_path().exists());
+        std_fs::remove_dir_all(store.base_dir()).expect("test temp dir should be removed");
+    }
+
+    #[tokio::test]
+    async fn cleanup_stale_files_should_keep_recordings_when_persist_audio_is_enabled() {
+        let store = test_store(true);
+        let session_id = SessionId::new();
+        let path = store
+            .create_recording_path(session_id, AudioFormat::Wav)
+            .await
+            .expect("recording path should be created");
+        fs::write(&path, b"audio")
+            .await
+            .expect("test recording should be written");
+
+        store
+            .cleanup_stale_files()
+            .await
+            .expect("stale cleanup should succeed");
+
+        assert!(path.as_std_path().exists());
+        std_fs::remove_dir_all(store.base_dir()).expect("test temp dir should be removed");
     }
 }

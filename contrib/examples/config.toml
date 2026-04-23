@@ -37,6 +37,8 @@ trim_threshold = 500
 min_duration_ms = 150
 # Sets the maximum recording duration in seconds; options: positive integer values.
 max_duration_sec = 120
+# Keeps captured audio files after each cycle for debugging; options: true, false.
+persist_audio = false
 
 [paste]
 # Selects which keyboard shortcut `dotool` should emulate for paste; options: "ctrl-v", "ctrl-shift-v", "shift-insert".

@@ -182,7 +182,10 @@ mod tests {
         let current_exe = env::current_exe().expect("current executable path should be available");
         let resolved = find_binary(current_exe.to_str().expect("path should be valid UTF-8"));
 
-        assert_eq!(resolved.as_deref(), Some(Path::new(current_exe.as_os_str())));
+        assert_eq!(
+            resolved.as_deref(),
+            Some(Path::new(current_exe.as_os_str()))
+        );
     }
 
     #[tokio::test]
@@ -195,7 +198,10 @@ mod tests {
             .expect("doctor should produce a report");
 
         assert!(
-            report.findings.iter().any(|finding| finding.name == "dotoolc"),
+            report
+                .findings
+                .iter()
+                .any(|finding| finding.name == "dotoolc"),
             "doctor should check the configured paste command"
         );
     }

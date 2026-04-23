@@ -622,6 +622,7 @@ trim_silence = true
 trim_threshold = 500
 min_duration_ms = 150
 max_duration_sec = 120
+persist_audio = false
 
 [paste]
 mode = "shift-insert"

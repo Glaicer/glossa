@@ -402,6 +402,7 @@ trim_silence = true
 trim_threshold = 500
 min_duration_ms = 150
 max_duration_sec = 120
+persist_audio = false
 
 [paste]
 mode = "ctrl-v"
@@ -474,6 +475,7 @@ trim_silence = true
 trim_threshold = 500
 min_duration_ms = 150
 max_duration_sec = 120
+persist_audio = false
 
 [paste]
 mode = "shift-insert"
@@ -514,7 +516,8 @@ file = false
 
     #[test]
     fn apply_settings_to_config_should_insert_missing_append_space_into_paste_section() {
-        let source = valid_config_source().replace("append_space = false # keep this comment\n", "");
+        let source =
+            valid_config_source().replace("append_space = false # keep this comment\n", "");
 
         let updated = apply_settings_to_config(&source, &updated_settings())
             .expect("missing append_space should be inserted");
@@ -544,6 +547,7 @@ trim_silence = true
 trim_threshold = 500
 min_duration_ms = 150
 max_duration_sec = 120
+persist_audio = false
 
 [paste]
 mode = "shift-insert"

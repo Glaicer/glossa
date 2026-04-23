@@ -225,6 +225,11 @@ mod tests {
     }
 
     #[test]
+    fn default_config_should_disable_persist_audio() {
+        assert!(!AppConfig::default().audio.persist_audio);
+    }
+
+    #[test]
     fn config_should_accept_backend_none() {
         let config = AppConfig {
             input: InputConfig {
@@ -372,5 +377,6 @@ file = false
         .expect("config should parse");
 
         assert!(matches!(config.audio.work_dir, WorkDir::Auto));
+        assert!(!config.audio.persist_audio);
     }
 }

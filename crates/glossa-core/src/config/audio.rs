@@ -14,6 +14,8 @@ pub struct AudioConfig {
     pub trim_threshold: u16,
     pub min_duration_ms: u64,
     pub max_duration_sec: u32,
+    #[serde(default)]
+    pub persist_audio: bool,
 }
 
 impl Default for AudioConfig {
@@ -27,6 +29,7 @@ impl Default for AudioConfig {
             trim_threshold: 500,
             min_duration_ms: 150,
             max_duration_sec: 120,
+            persist_audio: false,
         }
     }
 }

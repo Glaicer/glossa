@@ -208,7 +208,10 @@ mod tests {
     #[async_trait]
     impl ClipboardWriter for RecordingClipboard {
         async fn set_text(&self, text: &str) -> Result<(), AppError> {
-            self.text.lock().expect("clipboard lock").push(text.to_owned());
+            self.text
+                .lock()
+                .expect("clipboard lock")
+                .push(text.to_owned());
             Ok(())
         }
     }
