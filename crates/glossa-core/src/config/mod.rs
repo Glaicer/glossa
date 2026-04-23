@@ -200,7 +200,7 @@ impl Default for AppConfig {
             paste: PasteConfig {
                 mode: PasteMode::CtrlV,
                 clipboard_command: "wl-copy".into(),
-                type_command: "dotool".into(),
+                type_command: "dotoolc".into(),
             },
             ui: UiConfig::default(),
             logging: LoggingConfig::default(),
@@ -212,6 +212,11 @@ impl Default for AppConfig {
 mod tests {
     use super::*;
     use crate::AudioFormat;
+
+    #[test]
+    fn default_config_should_use_dotoolc_for_paste_command() {
+        assert_eq!(AppConfig::default().paste.type_command, "dotoolc");
+    }
 
     #[test]
     fn config_should_accept_backend_none() {
@@ -342,7 +347,7 @@ max_duration_sec = 120
 [paste]
 mode = "ctrl-shift-v"
 clipboard_command = "wl-copy"
-type_command = "dotool"
+type_command = "dotoolc"
 
 [ui]
 tray = true

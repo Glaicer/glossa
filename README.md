@@ -157,7 +157,7 @@ install -m644 assets/tray/* ~/.local/share/glossa/assets/tray/
 install -m644 assets/sounds/* ~/.local/share/glossa/assets/sounds/
 ```
 
-7. Create `~/.config/glossa/config.toml`. A good reference is `contrib/examples/config.toml` from this repository. If you use `api_key = "env:..."`, also provide the variable through `~/.config/glossa/glossa.env` or your user session environment.
+7. Create `~/.config/glossa/config.toml`. A good reference is `contrib/examples/config.toml` from this repository. Set `type_command = "/usr/local/bin/dotoolc"` so Glossa sends paste actions through the running `dotoold` service. If you use `api_key = "env:..."`, also provide the variable through `~/.config/glossa/glossa.env` or your user session environment.
 8. Create the user services and enable them:
 
 ```bash

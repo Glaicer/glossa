@@ -43,8 +43,8 @@ max_duration_sec = 120
 mode = "shift-insert"
 # Sets the clipboard command used to place text into the Wayland clipboard; options: "wl-copy".
 clipboard_command = "wl-copy"
-# Sets the typing/paste emulation command; options: "dotool".
-type_command = "dotool"
+# Sets the typing/paste emulation command; options: "dotoolc".
+type_command = "dotoolc"
 
 [ui]
 # Enables best-effort tray integration; options: true, false.

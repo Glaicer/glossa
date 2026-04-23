@@ -20,7 +20,7 @@ impl Doctor {
             check_portal(config),
             check_binary("wl-copy"),
             check_binary("notify-send"),
-            check_binary("dotool"),
+            check_binary(config.paste.type_command.as_str()),
             check_tray(config),
             check_socket(config),
             check_config(config),
@@ -84,10 +84,10 @@ fn check_portal(config: &AppConfig) -> DoctorFinding {
     }
 }
 
-fn check_binary(binary: &'static str) -> DoctorFinding {
+fn check_binary(binary: &str) -> DoctorFinding {
     match find_binary(binary) {
         Some(path) => ok(binary, format!("found at {}", path.display())),
-        None => fail(binary, format!("{binary} was not found on PATH")),
+        None => fail(binary, format!("{binary} was not found")),
     }
 }
 
@@ -140,26 +140,26 @@ fn check_api_key(config: &AppConfig) -> DoctorFinding {
     }
 }
 
-fn ok(name: &'static str, detail: impl Into<String>) -> DoctorFinding {
+fn ok(name: impl Into<String>, detail: impl Into<String>) -> DoctorFinding {
     DoctorFinding {
         level: DoctorLevel::Ok,
-        name,
+        name: name.into(),
         detail: detail.into(),
     }
 }
 
-fn warn(name: &'static str, detail: impl Into<String>) -> DoctorFinding {
+fn warn(name: impl Into<String>, detail: impl Into<String>) -> DoctorFinding {
     DoctorFinding {
         level: DoctorLevel::Warn,
-        name,
+        name: name.into(),
         detail: detail.into(),
     }
 }
 
-fn fail(name: &'static str, detail: impl Into<String>) -> DoctorFinding {
+fn fail(name: impl Into<String>, detail: impl Into<String>) -> DoctorFinding {
     DoctorFinding {
         level: DoctorLevel::Fail,
-        name,
+        name: name.into(),
         detail: detail.into(),
     }
 }
@@ -173,7 +173,32 @@ fn find_binary(binary: &str) -> Option<std::path::PathBuf> {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::*;
+
+    #[test]
+    fn find_binary_should_accept_explicit_paths() {
+        let current_exe = env::current_exe().expect("current executable path should be available");
+        let resolved = find_binary(current_exe.to_str().expect("path should be valid UTF-8"));
+
+        assert_eq!(resolved.as_deref(), Some(Path::new(current_exe.as_os_str())));
+    }
+
+    #[tokio::test]
+    async fn doctor_should_check_the_configured_paste_command() {
+        let mut config = AppConfig::default();
+        config.paste.type_command = "dotoolc".into();
+
+        let report = Doctor::run(&config)
+            .await
+            .expect("doctor should produce a report");
+
+        assert!(
+            report.findings.iter().any(|finding| finding.name == "dotoolc"),
+            "doctor should check the configured paste command"
+        );
+    }
 
     #[tokio::test]
     async fn doctor_report_should_render_levels() {

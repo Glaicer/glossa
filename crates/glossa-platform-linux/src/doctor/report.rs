@@ -23,7 +23,7 @@ impl DoctorLevel {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DoctorFinding {
     pub level: DoctorLevel,
-    pub name: &'static str,
+    pub name: String,
     pub detail: String,
 }
 

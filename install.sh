@@ -626,7 +626,7 @@ max_duration_sec = 120
 [paste]
 mode = "shift-insert"
 clipboard_command = "${wl_copy_path}"
-type_command = "${dotool_path}"
+type_command = "${dotoolc_path}"
 
 [ui]
 tray = true

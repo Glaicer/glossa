@@ -348,7 +348,7 @@ max_duration_sec = 120
 [paste]
 mode = "ctrl-v"
 clipboard_command = "wl-copy"
-type_command = "dotool"
+type_command = "dotoolc"
 
 [ui]
 theme = "dark"
@@ -418,7 +418,7 @@ max_duration_sec = 120
 [paste]
 mode = "shift-insert"
 clipboard_command = "wl-copy"
-type_command = "dotool"
+type_command = "dotoolc"
 
 [ui]
 theme = "light"
