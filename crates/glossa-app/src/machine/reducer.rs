@@ -30,8 +30,8 @@ pub fn reduce(state: &AppState, command: &AppCommand) -> Result<Decision, CoreEr
                 next_state: AppState::Recording(RecordingState { session_id }),
                 actions: vec![
                     Action::SetTrayRecording,
-                    Action::PlayStartCue,
                     Action::StartRecording { session_id },
+                    Action::PlayStartCue,
                 ],
             }
         }

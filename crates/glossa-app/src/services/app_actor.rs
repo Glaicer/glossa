@@ -302,7 +302,7 @@ mod tests {
     use async_trait::async_trait;
     use camino::{Utf8Path, Utf8PathBuf};
 
-    use glossa_core::{AudioFormat, CapturedAudio};
+    use glossa_core::{AudioFormat, CapturedAudio, CommandOrigin};
 
     use super::*;
     use crate::ports::{
@@ -313,6 +313,11 @@ mod tests {
     #[derive(Debug)]
     struct FakeAudioCapture {
         started: Arc<Mutex<bool>>,
+    }
+
+    #[derive(Debug)]
+    struct OrderedAudioCapture {
+        events: Arc<Mutex<Vec<&'static str>>>,
     }
 
     struct FakeRecording;
@@ -327,6 +332,23 @@ mod tests {
         ) -> Result<Box<dyn ActiveRecording>, AppError> {
             let _ = (session_id, spec, path);
             *self.started.lock().expect("mutex should not be poisoned") = true;
+            Ok(Box::new(FakeRecording))
+        }
+    }
+
+    #[async_trait]
+    impl AudioCapture for OrderedAudioCapture {
+        async fn start(
+            &self,
+            session_id: SessionId,
+            spec: RecordSpec,
+            path: &Utf8Path,
+        ) -> Result<Box<dyn ActiveRecording>, AppError> {
+            let _ = (session_id, spec, path);
+            self.events
+                .lock()
+                .expect("mutex should not be poisoned")
+                .push("start-recording");
             Ok(Box::new(FakeRecording))
         }
     }
@@ -361,9 +383,29 @@ mod tests {
     #[derive(Debug, Default)]
     struct FakeCuePlayer;
 
+    #[derive(Debug)]
+    struct OrderedCuePlayer {
+        events: Arc<Mutex<Vec<&'static str>>>,
+    }
+
     #[async_trait]
     impl CuePlayer for FakeCuePlayer {
         async fn play_start(&self) -> Result<(), AppError> {
+            Ok(())
+        }
+
+        async fn play_stop(&self) -> Result<(), AppError> {
+            Ok(())
+        }
+    }
+
+    #[async_trait]
+    impl CuePlayer for OrderedCuePlayer {
+        async fn play_start(&self) -> Result<(), AppError> {
+            self.events
+                .lock()
+                .expect("mutex should not be poisoned")
+                .push("play-start-cue");
             Ok(())
         }
 
@@ -447,5 +489,38 @@ mod tests {
         };
         let (_actor, handle) = AppActor::new(AppConfig::default(), deps);
         assert_eq!(handle.status().state, glossa_core::AppStateKind::Idle);
+    }
+
+    #[tokio::test]
+    async fn actor_should_start_recording_before_playing_start_cue() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let deps = AppDependencies {
+            audio_capture: Arc::new(OrderedAudioCapture {
+                events: Arc::clone(&events),
+            }),
+            trimmer: Arc::new(FakeTrimmer),
+            cue_player: Arc::new(OrderedCuePlayer {
+                events: Arc::clone(&events),
+            }),
+            stt_client: Arc::new(FakeSttClient),
+            clipboard: Arc::new(FakeClipboard),
+            paste: Arc::new(FakePaste),
+            tray: Arc::new(crate::ports::NullTrayPort),
+            temp_store: Arc::new(FakeTempStore),
+        };
+        let (mut actor, _handle) = AppActor::new(AppConfig::default(), deps);
+
+        let exit = actor
+            .handle_command(AppCommand::ToggleRecording {
+                origin: CommandOrigin::CliControl,
+            })
+            .await
+            .expect("command should succeed");
+
+        assert_eq!(exit, None);
+        assert_eq!(
+            *events.lock().expect("mutex should not be poisoned"),
+            vec!["start-recording", "play-start-cue"]
+        );
     }
 }

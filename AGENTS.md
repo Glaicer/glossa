@@ -347,8 +347,8 @@ All crates inherit these via `[lints] workspace = true`.
 
 1. User presses shortcut → `PortalShortcutSource` emits `ToggleRecording`
 2. `AppActor` receives command, calls `reduce(Idle, ToggleRecording)`
-3. Reducer returns `Decision { Recording, [SetTrayRecording, PlayStartCue, StartRecording] }`
-4. Actor executes actions: tray update → cue → start CPAL capture
+3. Reducer returns `Decision { Recording, [SetTrayRecording, StartRecording, PlayStartCue] }`
+4. Actor executes actions: tray update → start CPAL capture → cue
 5. User presses again → `reduce(Recording, ToggleRecording)`
 6. Reducer returns `Decision { Processing, [PlayStopCue, SetTrayProcessing, StopRecording] }`
 7. Actor stops capture → spawns background pipeline: trim → STT → clipboard → paste → cleanup
