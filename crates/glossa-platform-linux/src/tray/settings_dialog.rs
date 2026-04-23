@@ -44,6 +44,7 @@ pub(super) fn edit_settings(current: &SettingsValues) -> Result<Option<SettingsV
     dialog.set_resizable(true);
     dialog.set_keep_above(true);
     dialog.set_default_response(ResponseType::Accept);
+    apply_response_button_spacing(&dialog);
 
     let content = dialog.content_area();
     let container = GtkBox::new(Orientation::Vertical, 12);
@@ -188,14 +189,24 @@ pub(super) fn edit_settings(current: &SettingsValues) -> Result<Option<SettingsV
 
 fn create_section_grid() -> Grid {
     let grid = Grid::new();
-    grid.set_row_spacing(8);
-    grid.set_column_spacing(12);
+    grid.set_row_spacing(10);
+    grid.set_column_spacing(16);
     grid
 }
 
 fn wrap_section(title: &str, grid: &Grid) -> Frame {
     let frame = Frame::new(Some(title));
-    frame.add(grid);
+    frame.set_margin_bottom(4);
+    frame.set_label_align(0.03, 0.5);
+
+    let section_body = GtkBox::new(Orientation::Vertical, 0);
+    section_body.set_margin_top(10);
+    section_body.set_margin_bottom(10);
+    section_body.set_margin_start(12);
+    section_body.set_margin_end(12);
+    section_body.pack_start(grid, true, true, 0);
+
+    frame.add(&section_body);
     frame
 }
 
@@ -227,11 +238,23 @@ fn create_entry(text: &str, tooltip: &str, masked: bool) -> Entry {
 fn attach_row<W: IsA<Widget>>(grid: &Grid, row: i32, label_text: &str, tooltip: &str, widget: &W) {
     let label = Label::new(Some(label_text));
     label.set_xalign(0.0);
+    label.set_yalign(0.5);
     label.set_tooltip_text(Some(tooltip));
     widget.set_tooltip_text(Some(tooltip));
 
     grid.attach(&label, 0, row, 1, 1);
     grid.attach(widget, 1, row, 1, 1);
+}
+
+fn apply_response_button_spacing(dialog: &Dialog) {
+    for response in [ResponseType::Cancel, ResponseType::Accept] {
+        if let Some(button) = dialog.widget_for_response(response) {
+            button.set_margin_top(8);
+            button.set_margin_bottom(4);
+            button.set_margin_start(6);
+            button.set_margin_end(6);
+        }
+    }
 }
 
 fn selected_id(combo: &ComboBoxText, label: &str) -> Result<String, AppError> {
