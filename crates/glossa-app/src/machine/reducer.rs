@@ -13,7 +13,9 @@ pub struct Decision {
 
 /// Applies a command to the current state and returns the next state plus side effects.
 pub fn reduce(state: &AppState, command: &AppCommand) -> Result<Decision, CoreError> {
-    use AppCommand::{Restart, Shutdown, StartRecording, StopRecording, ToggleRecording};
+    use AppCommand::{
+        CancelRecording, Restart, Shutdown, StartRecording, StopRecording, ToggleRecording,
+    };
 
     let decision = match (state, command) {
         (_, Restart { .. }) => Decision {
@@ -35,11 +37,21 @@ pub fn reduce(state: &AppState, command: &AppCommand) -> Result<Decision, CoreEr
                 ],
             }
         }
-        (AppState::Idle, StopRecording { .. }) => Decision {
+        (AppState::Idle, StopRecording { .. } | CancelRecording { .. }) => Decision {
             next_state: AppState::Idle,
             actions: vec![Action::Ignore {
                 reason: "recording is not active",
             }],
+        },
+        (AppState::Recording(RecordingState { session_id }), CancelRecording { .. }) => Decision {
+            next_state: AppState::Idle,
+            actions: vec![
+                Action::SetTrayIdle,
+                Action::PlayStopCue,
+                Action::AbortRecording {
+                    session_id: *session_id,
+                },
+            ],
         },
         (
             AppState::Recording(RecordingState { session_id }),
@@ -62,16 +74,18 @@ pub fn reduce(state: &AppState, command: &AppCommand) -> Result<Decision, CoreEr
                 reason: "recording is already active",
             }],
         },
-        (busy_state, StartRecording { .. } | StopRecording { .. } | ToggleRecording { .. })
-            if should_ignore_recording_command(busy_state) =>
-        {
-            Decision {
-                next_state: busy_state.clone(),
-                actions: vec![Action::Ignore {
-                    reason: "recording command ignored while the previous cycle is busy",
-                }],
-            }
-        }
+        (
+            busy_state,
+            StartRecording { .. }
+            | StopRecording { .. }
+            | ToggleRecording { .. }
+            | CancelRecording { .. },
+        ) if should_ignore_recording_command(busy_state) => Decision {
+            next_state: busy_state.clone(),
+            actions: vec![Action::Ignore {
+                reason: "recording command ignored while the previous cycle is busy",
+            }],
+        },
         (AppState::ShuttingDown, _) => Decision {
             next_state: AppState::ShuttingDown,
             actions: vec![Action::Ignore {
@@ -87,7 +101,13 @@ pub fn reduce(state: &AppState, command: &AppCommand) -> Result<Decision, CoreEr
         },
     };
 
-    if matches!(decision.next_state, AppState::Idle) && !matches!(state, AppState::Idle) {
+    if matches!(decision.next_state, AppState::Idle)
+        && !matches!(state, AppState::Idle)
+        && !decision
+            .actions
+            .iter()
+            .any(|action| matches!(action, Action::SetTrayIdle))
+    {
         return Ok(Decision {
             actions: [decision.actions, vec![Action::SetTrayIdle]].concat(),
             ..decision
@@ -99,9 +119,11 @@ pub fn reduce(state: &AppState, command: &AppCommand) -> Result<Decision, CoreEr
 
 #[cfg(test)]
 mod tests {
-    use glossa_core::{AppCommand, AppState, CommandOrigin, RecordingState};
+    use glossa_core::{
+        AppCommand, AppState, CommandOrigin, PastingState, RecordingState, SessionId,
+    };
 
-    use super::reduce;
+    use super::{reduce, Action};
 
     #[test]
     fn idle_toggle_should_start_recording() {
@@ -119,10 +141,9 @@ mod tests {
 
     #[test]
     fn recording_toggle_should_stop_recording() {
+        let session_id = SessionId::new();
         let decision = reduce(
-            &AppState::Recording(RecordingState {
-                session_id: Default::default(),
-            }),
+            &AppState::Recording(RecordingState { session_id }),
             &AppCommand::ToggleRecording {
                 origin: CommandOrigin::CliControl,
             },
@@ -130,6 +151,47 @@ mod tests {
         .expect("reducer should succeed");
 
         assert!(matches!(decision.next_state, AppState::Processing(_)));
+    }
+
+    #[test]
+    fn recording_cancel_should_return_to_idle_without_processing() {
+        let session_id = SessionId::new();
+        let decision = reduce(
+            &AppState::Recording(RecordingState { session_id }),
+            &AppCommand::CancelRecording {
+                origin: CommandOrigin::EscapeKey,
+            },
+        )
+        .expect("reducer should succeed");
+
+        assert_eq!(decision.next_state, AppState::Idle);
+        assert_eq!(
+            decision.actions,
+            vec![
+                Action::SetTrayIdle,
+                Action::PlayStopCue,
+                Action::AbortRecording { session_id },
+            ]
+        );
+    }
+
+    #[test]
+    fn idle_cancel_should_be_ignored() {
+        let decision = reduce(
+            &AppState::Idle,
+            &AppCommand::CancelRecording {
+                origin: CommandOrigin::EscapeKey,
+            },
+        )
+        .expect("reducer should succeed");
+
+        assert_eq!(decision.next_state, AppState::Idle);
+        assert_eq!(
+            decision.actions,
+            vec![Action::Ignore {
+                reason: "recording is not active",
+            }]
+        );
     }
 
     #[test]
@@ -149,6 +211,31 @@ mod tests {
     }
 
     #[test]
+    fn busy_cancel_should_be_ignored() {
+        for state in [
+            AppState::Processing(glossa_core::ProcessingState {
+                session_id: Default::default(),
+            }),
+            AppState::Pasting(PastingState {
+                session_id: Default::default(),
+                text_len: 5,
+            }),
+            AppState::ShuttingDown,
+        ] {
+            let decision = reduce(
+                &state,
+                &AppCommand::CancelRecording {
+                    origin: CommandOrigin::EscapeKey,
+                },
+            )
+            .expect("reducer should succeed");
+
+            assert_eq!(decision.next_state, state);
+            assert_eq!(decision.actions.len(), 1);
+        }
+    }
+
+    #[test]
     fn restart_should_request_shutdown_from_any_state() {
         let decision = reduce(
             &AppState::Recording(RecordingState {
@@ -161,6 +248,6 @@ mod tests {
         .expect("reducer should succeed");
 
         assert!(matches!(decision.next_state, AppState::ShuttingDown));
-        assert_eq!(decision.actions, vec![super::Action::Restart]);
+        assert_eq!(decision.actions, vec![Action::Restart]);
     }
 }

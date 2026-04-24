@@ -7,6 +7,7 @@ pub enum CommandOrigin {
     PortalShortcut,
     CliControl,
     TrayMenu,
+    EscapeKey,
     Internal,
 }
 
@@ -17,6 +18,7 @@ pub enum AppCommand {
     StartRecording { origin: CommandOrigin },
     StopRecording { origin: CommandOrigin },
     ToggleRecording { origin: CommandOrigin },
+    CancelRecording { origin: CommandOrigin },
     Restart { origin: CommandOrigin },
     Shutdown { origin: CommandOrigin },
 }

@@ -278,6 +278,10 @@ mod tests {
             Ok(())
         }
 
+        async fn purge_session(&self, _session_id: SessionId) -> Result<(), AppError> {
+            Ok(())
+        }
+
         async fn cleanup_stale_files(&self) -> Result<(), AppError> {
             Ok(())
         }

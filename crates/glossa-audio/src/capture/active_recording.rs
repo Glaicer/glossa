@@ -26,9 +26,12 @@ impl ActiveRecording for CpalActiveRecording {
     }
 
     async fn abort(self: Box<Self>) -> Result<(), AppError> {
-        let _ = self.stream.pause();
-        drop(self.tx);
-        if let Some(writer_handle) = self.writer_handle {
+        let mut recording = *self;
+        let stream = recording.stream;
+        let _ = stream.pause();
+        drop(recording.tx.take());
+        drop(stream);
+        if let Some(writer_handle) = recording.writer_handle.take() {
             let _ = writer_handle.join();
         }
         Ok(())

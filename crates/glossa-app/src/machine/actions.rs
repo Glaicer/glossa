@@ -5,6 +5,7 @@ use glossa_core::SessionId;
 pub enum Action {
     StartRecording { session_id: SessionId },
     StopRecording { session_id: SessionId },
+    AbortRecording { session_id: SessionId },
     SetTrayIdle,
     SetTrayRecording,
     SetTrayProcessing,

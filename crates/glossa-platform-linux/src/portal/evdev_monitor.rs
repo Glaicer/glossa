@@ -82,35 +82,29 @@ pub(crate) fn spawn_release_monitor(combo_keys: HashSet<KeyCode>) -> oneshot::Re
     rx
 }
 
+pub(crate) fn spawn_escape_press_monitor() -> oneshot::Receiver<()> {
+    let (tx, rx) = oneshot::channel();
+
+    tokio::spawn(async move {
+        if let Err(error) = monitor_key_press(KeyCode::KEY_ESC, tx).await {
+            warn!(error = %error, "evdev escape key monitor failed");
+        }
+    });
+
+    rx
+}
+
 async fn monitor_key_release(
     combo_keys: HashSet<KeyCode>,
     done: oneshot::Sender<()>,
 ) -> Result<(), String> {
-    let devices = open_keyboard_devices()?;
-    if devices.is_empty() {
-        return Err("no keyboard evdev devices found; is the user in the 'input' group?".into());
-    }
+    let mut held: HashSet<KeyCode> = combo_keys.clone();
+    let mut streams = open_keyboard_event_streams()?;
 
     debug!(
-        device_count = devices.len(),
+        device_count = streams.len(),
         "evdev release monitor started"
     );
-
-    let mut held: HashSet<KeyCode> = combo_keys.clone();
-
-    let mut streams: Vec<evdev::EventStream> = Vec::new();
-    for device in devices {
-        match device.into_event_stream() {
-            Ok(stream) => streams.push(stream),
-            Err(error) => {
-                debug!(error = %error, "failed to create event stream for device");
-            }
-        }
-    }
-
-    if streams.is_empty() {
-        return Err("could not create event streams for any keyboard device".into());
-    }
 
     use futures_util::stream::FuturesUnordered;
     use futures_util::StreamExt;
@@ -144,6 +138,53 @@ async fn monitor_key_release(
                             held.remove(&key);
                         } else if value == 1 && combo_keys.contains(&key) {
                             held.insert(key);
+                        }
+                    }
+                }
+                Err(error) => {
+                    debug!(error = %error, "evdev read error; continuing with other devices");
+                }
+            }
+        } else {
+            return Err("all evdev event streams ended".into());
+        }
+    }
+}
+
+async fn monitor_key_press(target_key: KeyCode, done: oneshot::Sender<()>) -> Result<(), String> {
+    let mut streams = open_keyboard_event_streams()?;
+
+    debug!(
+        ?target_key,
+        device_count = streams.len(),
+        "evdev key press monitor started"
+    );
+
+    use futures_util::stream::FuturesUnordered;
+    use futures_util::StreamExt;
+
+    loop {
+        if done.is_closed() {
+            debug!(?target_key, "evdev key press monitor cancelled");
+            return Ok(());
+        }
+
+        let mut futs: FuturesUnordered<_> = streams
+            .iter_mut()
+            .enumerate()
+            .map(|(i, s)| async move { (i, s.next_event().await) })
+            .collect();
+
+        if let Some((_idx, result)) = futs.next().await {
+            drop(futs);
+            match result {
+                Ok(event) => {
+                    if let EventSummary::Key(_, key, value) = event.destructure() {
+                        let key = normalize_modifier_key(key);
+                        if value == 1 && key == target_key {
+                            debug!(?key, "target key pressed");
+                            let _ = done.send(());
+                            return Ok(());
                         }
                     }
                 }
@@ -194,6 +235,29 @@ fn open_keyboard_devices() -> Result<Vec<Device>, String> {
     }
 
     Ok(devices)
+}
+
+fn open_keyboard_event_streams() -> Result<Vec<evdev::EventStream>, String> {
+    let devices = open_keyboard_devices()?;
+    if devices.is_empty() {
+        return Err("no keyboard evdev devices found; is the user in the 'input' group?".into());
+    }
+
+    let mut streams = Vec::new();
+    for device in devices {
+        match device.into_event_stream() {
+            Ok(stream) => streams.push(stream),
+            Err(error) => {
+                debug!(error = %error, "failed to create event stream for device");
+            }
+        }
+    }
+
+    if streams.is_empty() {
+        return Err("could not create event streams for any keyboard device".into());
+    }
+
+    Ok(streams)
 }
 
 fn normalize_modifier_key(key: KeyCode) -> KeyCode {

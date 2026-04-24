@@ -14,6 +14,7 @@ pub trait TempStore: Send + Sync {
     ) -> Result<Utf8PathBuf, AppError>;
 
     async fn cleanup_session(&self, session_id: SessionId) -> Result<(), AppError>;
+    async fn purge_session(&self, session_id: SessionId) -> Result<(), AppError>;
 
     async fn cleanup_stale_files(&self) -> Result<(), AppError>;
 }

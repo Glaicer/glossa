@@ -5,7 +5,9 @@ use tracing::{error, info};
 use glossa_app::{ports::CommandSource, ActorExit};
 use glossa_core::InputBackend;
 use glossa_platform_linux::{
-    dialog::show_fatal_error_dialog, ipc::IpcServer, portal::PortalShortcutSource,
+    dialog::show_fatal_error_dialog,
+    ipc::IpcServer,
+    portal::{run_escape_cancel_monitor, PortalShortcutSource},
 };
 
 use crate::bootstrap::{build_actor, build_tray, init_tracing, load_config};
@@ -38,6 +40,15 @@ async fn run_inner(config_path: Option<std::path::PathBuf>) -> anyhow::Result<()
         let (actor, handle) = build_actor(config, tray_port.clone())?;
         tray.bind_command_sender(handle.command_sender());
         let mut tasks: Vec<JoinHandle<()>> = Vec::new();
+        let escape_status_rx = handle.subscribe();
+        let escape_command_tx = handle.command_sender();
+
+        tasks.push(tokio::spawn(async move {
+            if let Err(error) = run_escape_cancel_monitor(escape_status_rx, escape_command_tx).await
+            {
+                error!(error = %error, "escape cancel monitor exited with an error");
+            }
+        }));
 
         if cli_enabled {
             let server = IpcServer::new(socket_path, handle.clone());

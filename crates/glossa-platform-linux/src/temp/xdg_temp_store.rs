@@ -1,4 +1,4 @@
-use std::{env, path::PathBuf};
+use std::env;
 
 use async_trait::async_trait;
 use camino::{Utf8Path, Utf8PathBuf};
@@ -45,6 +45,39 @@ impl XdgTempStore {
         self.base_dir
             .join(format!("glossa-{session_id}.{}", format.extension()))
     }
+
+    async fn remove_matching_files(
+        &self,
+        mut should_remove: impl FnMut(&str) -> bool,
+    ) -> Result<(), AppError> {
+        fs::create_dir_all(self.base_dir())
+            .await
+            .map_err(|error| AppError::io("failed to create temp directory", error))?;
+        let mut entries = fs::read_dir(self.base_dir())
+            .await
+            .map_err(|error| AppError::io("failed to read temp directory", error))?;
+        while let Some(entry) = entries
+            .next_entry()
+            .await
+            .map_err(|error| AppError::io("failed to iterate temp directory", error))?
+        {
+            let path = entry.path();
+            let should_remove_file = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| should_remove(name));
+            if should_remove_file {
+                let _ = fs::remove_file(path).await;
+            }
+        }
+        Ok(())
+    }
+
+    async fn remove_session_files(&self, session_id: SessionId) -> Result<(), AppError> {
+        let prefix = format!("glossa-{session_id}");
+        self.remove_matching_files(|name| name.starts_with(&prefix))
+            .await
+    }
 }
 
 #[async_trait]
@@ -65,28 +98,11 @@ impl TempStore for XdgTempStore {
             return Ok(());
         }
 
-        fs::create_dir_all(self.base_dir())
-            .await
-            .map_err(|error| AppError::io("failed to create temp directory", error))?;
-        let prefix = format!("glossa-{session_id}");
-        let mut entries = fs::read_dir(self.base_dir())
-            .await
-            .map_err(|error| AppError::io("failed to read temp directory", error))?;
-        while let Some(entry) = entries
-            .next_entry()
-            .await
-            .map_err(|error| AppError::io("failed to iterate temp directory", error))?
-        {
-            let path = entry.path();
-            if path
-                .file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(|name| name.starts_with(&prefix))
-            {
-                let _ = fs::remove_file(path).await;
-            }
-        }
-        Ok(())
+        self.remove_session_files(session_id).await
+    }
+
+    async fn purge_session(&self, session_id: SessionId) -> Result<(), AppError> {
+        self.remove_session_files(session_id).await
     }
 
     async fn cleanup_stale_files(&self) -> Result<(), AppError> {
@@ -94,27 +110,8 @@ impl TempStore for XdgTempStore {
             return Ok(());
         }
 
-        fs::create_dir_all(self.base_dir())
+        self.remove_matching_files(|name| name.starts_with("glossa-"))
             .await
-            .map_err(|error| AppError::io("failed to create temp directory", error))?;
-        let mut entries = fs::read_dir(self.base_dir())
-            .await
-            .map_err(|error| AppError::io("failed to read temp directory", error))?;
-        while let Some(entry) = entries
-            .next_entry()
-            .await
-            .map_err(|error| AppError::io("failed to iterate temp directory", error))?
-        {
-            let path: PathBuf = entry.path();
-            if path
-                .file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(|name| name.starts_with("glossa-"))
-            {
-                let _ = fs::remove_file(path).await;
-            }
-        }
-        Ok(())
     }
 }
 
@@ -178,6 +175,27 @@ mod tests {
             .expect("stale cleanup should succeed");
 
         assert!(path.as_std_path().exists());
+        std_fs::remove_dir_all(store.base_dir()).expect("test temp dir should be removed");
+    }
+
+    #[tokio::test]
+    async fn purge_session_should_delete_recordings_when_persist_audio_is_enabled() {
+        let store = test_store(true);
+        let session_id = SessionId::new();
+        let path = store
+            .create_recording_path(session_id, AudioFormat::Wav)
+            .await
+            .expect("recording path should be created");
+        fs::write(&path, b"audio")
+            .await
+            .expect("test recording should be written");
+
+        store
+            .purge_session(session_id)
+            .await
+            .expect("purge should succeed");
+
+        assert!(!path.as_std_path().exists());
         std_fs::remove_dir_all(store.base_dir()).expect("test temp dir should be removed");
     }
 }
