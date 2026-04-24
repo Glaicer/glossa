@@ -394,6 +394,7 @@ model = "whisper-large-v3"
 api_key = "env:GROQ_API_KEY"
 
 [audio]
+enabled = true
 work_dir = "auto"
 format = "wav"
 sample_rate_hz = 16000
@@ -467,6 +468,7 @@ model = "custom-model"
 api_key = "env:CUSTOM_KEY"
 
 [audio]
+enabled = true
 work_dir = "auto"
 format = "wav"
 sample_rate_hz = 16000
@@ -539,6 +541,7 @@ model = "custom-model"
 api_key = "env:CUSTOM_KEY"
 
 [audio]
+enabled = true
 work_dir = "auto"
 format = "wav"
 sample_rate_hz = 16000

@@ -230,6 +230,11 @@ mod tests {
     }
 
     #[test]
+    fn default_config_should_enable_cue_audio() {
+        assert!(AppConfig::default().audio.enabled);
+    }
+
+    #[test]
     fn config_should_accept_backend_none() {
         let config = AppConfig {
             input: InputConfig {
@@ -346,6 +351,7 @@ model = "whisper-large-v3"
 api_key = "env:GROQ_API_KEY"
 
 [audio]
+enabled = false
 work_dir = "auto"
 format = "wav"
 sample_rate_hz = 16000
@@ -376,6 +382,7 @@ file = false
         )
         .expect("config should parse");
 
+        assert!(!config.audio.enabled);
         assert!(matches!(config.audio.work_dir, WorkDir::Auto));
         assert!(!config.audio.persist_audio);
     }

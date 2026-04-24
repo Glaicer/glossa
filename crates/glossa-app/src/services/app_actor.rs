@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Instant};
 
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
@@ -184,17 +184,21 @@ impl AppActor {
     }
 
     async fn start_recording(&mut self, session_id: SessionId) -> Result<(), AppError> {
+        let startup_started_at = Instant::now();
+        let path_started_at = Instant::now();
         let path = self
             .deps
             .temp_store
             .create_recording_path(session_id, self.config.audio.format)
             .await?;
+        let path_prep_ms = path_started_at.elapsed().as_millis();
         let spec = RecordSpec {
             sample_rate_hz: self.config.audio.sample_rate_hz,
             channels: self.config.audio.channels,
             format: self.config.audio.format,
             max_duration_sec: self.config.audio.max_duration_sec,
         };
+        let capture_started_at = Instant::now();
         match self
             .deps
             .audio_capture
@@ -203,10 +207,24 @@ impl AppActor {
         {
             Ok(recording) => {
                 self.active_recording = Some(recording);
-                info!(%session_id, path = %path, "recording started");
+                info!(
+                    %session_id,
+                    path = %path,
+                    path_prep_ms,
+                    capture_startup_ms = capture_started_at.elapsed().as_millis(),
+                    total_startup_ms = startup_started_at.elapsed().as_millis(),
+                    "recording started"
+                );
             }
             Err(error) => {
-                error!(%session_id, error = %error, "failed to start recording");
+                error!(
+                    %session_id,
+                    error = %error,
+                    path_prep_ms,
+                    capture_startup_ms = capture_started_at.elapsed().as_millis(),
+                    total_startup_ms = startup_started_at.elapsed().as_millis(),
+                    "failed to start recording"
+                );
                 self.state = AppState::Idle;
                 self.publish_status();
                 self.set_tray_state(TrayState::Idle).await;

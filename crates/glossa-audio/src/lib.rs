@@ -6,5 +6,5 @@ pub mod trim;
 pub mod wav;
 
 pub use self::capture::CpalAudioCapture;
-pub use self::cue::RodioCuePlayer;
+pub use self::cue::{CuePlayerBackend, RodioCuePlayer};
 pub use self::trim::WavSilenceTrimmer;

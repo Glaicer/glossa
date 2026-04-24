@@ -30,6 +30,7 @@ impl AudioCapture for CpalAudioCapture {
         spec: RecordSpec,
         path: &Utf8Path,
     ) -> Result<Box<dyn glossa_app::ports::ActiveRecording>, AppError> {
+        let startup_started_at = Instant::now();
         let host = cpal::default_host();
         let device = host
             .default_input_device()
@@ -44,31 +45,66 @@ impl AudioCapture for CpalAudioCapture {
             buffer_size: cpal::BufferSize::Default,
         };
 
-        let (writer_tx, writer_handle, actual_config) = start_writer(path, &requested_config);
-        let stream = build_stream(
+        let writer_started_at = Instant::now();
+        let (writer_tx, writer_handle, writer_config) = start_writer(path, &requested_config);
+        let writer_setup_ms = writer_started_at.elapsed().as_millis();
+        let stream_build_started_at = Instant::now();
+        let (stream, used_fallback_config) = match build_stream(
             &device,
             default_config.sample_format(),
             &requested_config,
             writer_tx.clone(),
-        )
-        .or_else(|_| {
-            build_stream(
-                &device,
-                default_config.sample_format(),
-                &fallback_config,
-                writer_tx.clone(),
-            )
-        })
-        .map_err(AppError::message)?;
+        ) {
+            Ok(stream) => (stream, false),
+            Err(error) => {
+                tracing::info!(
+                    %session_id,
+                    requested_sample_rate_hz = requested_config.sample_rate.0,
+                    requested_channels = requested_config.channels,
+                    fallback_sample_rate_hz = fallback_config.sample_rate.0,
+                    fallback_channels = fallback_config.channels,
+                    error = %error,
+                    "requested input config failed, retrying with default input config"
+                );
+                (
+                    build_stream(
+                        &device,
+                        default_config.sample_format(),
+                        &fallback_config,
+                        writer_tx.clone(),
+                    )
+                    .map_err(AppError::message)?,
+                    true,
+                )
+            }
+        };
+        let stream_build_ms = stream_build_started_at.elapsed().as_millis();
+        let play_started_at = Instant::now();
         stream
             .play()
             .map_err(|error| AppError::message(format!("failed to start audio stream: {error}")))?;
+        let stream_play_ms = play_started_at.elapsed().as_millis();
+        tracing::info!(
+            %session_id,
+            requested_sample_rate_hz = spec.sample_rate_hz,
+            requested_channels = spec.channels,
+            writer_sample_rate_hz = writer_config.sample_rate.0,
+            writer_channels = writer_config.channels,
+            fallback_sample_rate_hz = fallback_config.sample_rate.0,
+            fallback_channels = fallback_config.channels,
+            used_fallback_config,
+            writer_setup_ms,
+            stream_build_ms,
+            stream_play_ms,
+            total_startup_ms = startup_started_at.elapsed().as_millis(),
+            "audio capture initialized"
+        );
 
         Ok(Box::new(CpalActiveRecording {
             session_id,
             path: path.to_owned(),
-            sample_rate_hz: actual_config.sample_rate.0,
-            channels: actual_config.channels,
+            sample_rate_hz: writer_config.sample_rate.0,
+            channels: writer_config.channels,
             started_at: Instant::now(),
             stream,
             tx: Some(writer_tx),

@@ -6,6 +6,8 @@ use crate::{AudioFormat, CoreError};
 /// Audio capture and processing settings.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AudioConfig {
+    #[serde(default = "default_audio_enabled")]
+    pub enabled: bool,
     pub work_dir: WorkDir,
     pub format: AudioFormat,
     pub sample_rate_hz: u32,
@@ -21,6 +23,7 @@ pub struct AudioConfig {
 impl Default for AudioConfig {
     fn default() -> Self {
         Self {
+            enabled: default_audio_enabled(),
             work_dir: WorkDir::Auto,
             format: AudioFormat::Wav,
             sample_rate_hz: 16_000,
@@ -63,6 +66,10 @@ impl AudioConfig {
         }
         Ok(())
     }
+}
+
+fn default_audio_enabled() -> bool {
+    true
 }
 
 /// Working directory selection for temporary recordings.
