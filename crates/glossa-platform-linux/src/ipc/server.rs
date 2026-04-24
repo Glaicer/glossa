@@ -76,6 +76,12 @@ async fn handle_client(stream: UnixStream, handle: AppHandle) -> Result<(), AppE
             })?;
             IpcResponse::Ok
         }
+        IpcRequest::Stream => {
+            handle.send(AppCommand::ToggleInputStream {
+                origin: CommandOrigin::CliControl,
+            })?;
+            IpcResponse::Ok
+        }
         IpcRequest::Status => IpcResponse::Status {
             status: handle.status(),
         },

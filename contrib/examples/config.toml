@@ -41,6 +41,10 @@ min_duration_ms = 150
 max_duration_sec = 120
 # Keeps captured audio files after each cycle for debugging; options: true, false.
 persist_audio = false
+# Selects idle microphone stream policy; options: "off", "balanced", "instant".
+latency_mode = "balanced"
+# Keeps the idle microphone stream active for this many seconds after recording stops in balanced mode; options: positive integer values.
+keepalive_after_stop_seconds = 60
 
 [paste]
 # Selects which keyboard shortcut `dotool` should emulate for paste; options: "ctrl-v", "ctrl-shift-v", "shift-insert".

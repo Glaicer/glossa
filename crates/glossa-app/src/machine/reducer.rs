@@ -14,7 +14,8 @@ pub struct Decision {
 /// Applies a command to the current state and returns the next state plus side effects.
 pub fn reduce(state: &AppState, command: &AppCommand) -> Result<Decision, CoreError> {
     use AppCommand::{
-        CancelRecording, Restart, Shutdown, StartRecording, StopRecording, ToggleRecording,
+        CancelRecording, DisableInputStream, EnableInputStream, Restart, Shutdown, StartRecording,
+        StopRecording, ToggleInputStream, ToggleRecording,
     };
 
     let decision = match (state, command) {
@@ -25,6 +26,18 @@ pub fn reduce(state: &AppState, command: &AppCommand) -> Result<Decision, CoreEr
         (_, Shutdown { .. }) => Decision {
             next_state: AppState::ShuttingDown,
             actions: vec![Action::Shutdown],
+        },
+        (_, ToggleInputStream { .. }) => Decision {
+            next_state: state.clone(),
+            actions: vec![Action::ToggleInputStream],
+        },
+        (_, EnableInputStream { .. }) => Decision {
+            next_state: state.clone(),
+            actions: vec![Action::EnableInputStream],
+        },
+        (_, DisableInputStream { .. }) => Decision {
+            next_state: state.clone(),
+            actions: vec![Action::DisableInputStream],
         },
         (AppState::Idle, StartRecording { .. } | ToggleRecording { .. }) => {
             let session_id = SessionId::new();
@@ -249,5 +262,49 @@ mod tests {
 
         assert!(matches!(decision.next_state, AppState::ShuttingDown));
         assert_eq!(decision.actions, vec![Action::Restart]);
+    }
+
+    #[test]
+    fn input_stream_commands_should_be_handled_from_busy_states() {
+        for (command, expected_action) in [
+            (
+                AppCommand::EnableInputStream {
+                    origin: CommandOrigin::TrayMenu,
+                },
+                Action::EnableInputStream,
+            ),
+            (
+                AppCommand::DisableInputStream {
+                    origin: CommandOrigin::TrayMenu,
+                },
+                Action::DisableInputStream,
+            ),
+        ] {
+            let state = AppState::Processing(glossa_core::ProcessingState {
+                session_id: Default::default(),
+            });
+            let decision = reduce(&state, &command).expect("reducer should succeed");
+
+            assert_eq!(decision.next_state, state);
+            assert_eq!(decision.actions, vec![expected_action]);
+        }
+    }
+
+    #[test]
+    fn toggle_input_stream_should_be_handled_from_busy_states() {
+        let state = AppState::Processing(glossa_core::ProcessingState {
+            session_id: Default::default(),
+        });
+
+        let decision = reduce(
+            &state,
+            &AppCommand::ToggleInputStream {
+                origin: CommandOrigin::CliControl,
+            },
+        )
+        .expect("reducer should succeed");
+
+        assert_eq!(decision.next_state, state);
+        assert_eq!(decision.actions, vec![Action::ToggleInputStream]);
     }
 }

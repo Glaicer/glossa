@@ -1,7 +1,9 @@
 use std::{collections::BTreeSet, fs, path::Path};
 
 use glossa_app::AppError;
-use glossa_core::{AppConfig, InputBackend, InputMode, PasteMode, ProviderKind, UiTheme};
+use glossa_core::{
+    AppConfig, InputBackend, InputMode, LatencyMode, PasteMode, ProviderKind, UiTheme,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct SettingsValues {
@@ -14,6 +16,8 @@ pub(super) struct SettingsValues {
     pub(super) provider_api_key: String,
     pub(super) paste_mode: PasteMode,
     pub(super) append_space: bool,
+    pub(super) latency_mode: LatencyMode,
+    pub(super) keepalive_after_stop_seconds: u64,
     pub(super) ui_theme: UiTheme,
 }
 
@@ -29,6 +33,8 @@ impl SettingsValues {
             provider_api_key: String::from(config.provider.api_key.clone()),
             paste_mode: config.paste.mode,
             append_space: config.paste.append_space,
+            latency_mode: config.audio.latency_mode,
+            keepalive_after_stop_seconds: config.audio.keepalive_after_stop_seconds,
             ui_theme: config.ui.theme,
         }
     }
@@ -39,10 +45,6 @@ pub(super) fn apply_settings_to_config(
     settings: &SettingsValues,
 ) -> Result<String, AppError> {
     let updates = build_updates(settings);
-    let append_space_update = updates
-        .iter()
-        .find(|update| update.section == "paste" && update.key == "append_space")
-        .expect("paste.append_space update must exist");
     let mut seen = BTreeSet::new();
     let mut current_section = None::<&str>;
     let mut updated = String::with_capacity(source.len() + 128);
@@ -51,12 +53,7 @@ pub(super) fn apply_settings_to_config(
         let (line, newline) = split_line_ending(raw_line);
 
         if let Some(section) = parse_section_name(line) {
-            maybe_insert_missing_append_space(
-                current_section,
-                append_space_update,
-                &mut seen,
-                &mut updated,
-            );
+            maybe_insert_missing_supported_keys(current_section, &updates, &mut seen, &mut updated);
             current_section = Some(section);
             updated.push_str(line);
             updated.push_str(newline);
@@ -80,12 +77,7 @@ pub(super) fn apply_settings_to_config(
         updated.push_str(newline);
     }
 
-    maybe_insert_missing_append_space(
-        current_section,
-        append_space_update,
-        &mut seen,
-        &mut updated,
-    );
+    maybe_insert_missing_supported_keys(current_section, &updates, &mut seen, &mut updated);
 
     let missing: Vec<String> = updates
         .iter()
@@ -103,21 +95,50 @@ pub(super) fn apply_settings_to_config(
     Ok(updated)
 }
 
-fn maybe_insert_missing_append_space(
+fn maybe_insert_missing_supported_keys(
     current_section: Option<&str>,
+    updates: &[SettingUpdate],
+    seen: &mut BTreeSet<(&'static str, &'static str)>,
+    updated: &mut String,
+) {
+    let missing: Vec<&SettingUpdate> = updates
+        .iter()
+        .filter(|update| {
+            current_section == Some(update.section)
+                && is_supported_missing_key(update)
+                && !seen.contains(&(update.section, update.key))
+        })
+        .collect();
+    if missing.is_empty() {
+        return;
+    }
+
+    let trailing_blank_lines = take_trailing_blank_lines(updated);
+    for update in missing {
+        insert_missing_setting(update, seen, updated);
+    }
+    updated.push_str(&trailing_blank_lines);
+}
+
+fn insert_missing_setting(
     update: &SettingUpdate,
     seen: &mut BTreeSet<(&'static str, &'static str)>,
     updated: &mut String,
 ) {
-    if current_section == Some("paste") && !seen.contains(&(update.section, update.key)) {
-        let trailing_blank_lines = take_trailing_blank_lines(updated);
-        updated.push_str(update.key);
-        updated.push_str(" = ");
-        updated.push_str(&update.value);
-        updated.push('\n');
-        updated.push_str(&trailing_blank_lines);
-        seen.insert((update.section, update.key));
-    }
+    updated.push_str(update.key);
+    updated.push_str(" = ");
+    updated.push_str(&update.value);
+    updated.push('\n');
+    seen.insert((update.section, update.key));
+}
+
+fn is_supported_missing_key(update: &SettingUpdate) -> bool {
+    matches!(
+        (update.section, update.key),
+        ("audio", "latency_mode")
+            | ("audio", "keepalive_after_stop_seconds")
+            | ("paste", "append_space")
+    )
 }
 
 fn take_trailing_blank_lines(updated: &mut String) -> String {
@@ -215,6 +236,23 @@ pub(super) fn parse_paste_mode(value: &str) -> Option<PasteMode> {
     }
 }
 
+pub(super) fn latency_mode_id(value: LatencyMode) -> &'static str {
+    match value {
+        LatencyMode::Off => "off",
+        LatencyMode::Balanced => "balanced",
+        LatencyMode::Instant => "instant",
+    }
+}
+
+pub(super) fn parse_latency_mode(value: &str) -> Option<LatencyMode> {
+    match value {
+        "off" => Some(LatencyMode::Off),
+        "balanced" => Some(LatencyMode::Balanced),
+        "instant" => Some(LatencyMode::Instant),
+        _ => None,
+    }
+}
+
 pub(super) fn ui_theme_id(value: UiTheme) -> &'static str {
     match value {
         UiTheme::Dark => "dark",
@@ -230,7 +268,7 @@ pub(super) fn parse_ui_theme(value: &str) -> Option<UiTheme> {
     }
 }
 
-fn build_updates(settings: &SettingsValues) -> [SettingUpdate; 10] {
+fn build_updates(settings: &SettingsValues) -> [SettingUpdate; 12] {
     [
         SettingUpdate::new(
             "input",
@@ -247,6 +285,16 @@ fn build_updates(settings: &SettingsValues) -> [SettingUpdate; 10] {
         SettingUpdate::new("provider", "base_url", quoted(&settings.provider_base_url)),
         SettingUpdate::new("provider", "model", quoted(&settings.provider_model)),
         SettingUpdate::new("provider", "api_key", quoted(&settings.provider_api_key)),
+        SettingUpdate::new(
+            "audio",
+            "latency_mode",
+            quoted(latency_mode_id(settings.latency_mode)),
+        ),
+        SettingUpdate::new(
+            "audio",
+            "keepalive_after_stop_seconds",
+            settings.keepalive_after_stop_seconds.to_string(),
+        ),
         SettingUpdate::new("paste", "mode", quoted(paste_mode_id(settings.paste_mode))),
         SettingUpdate::new("paste", "append_space", settings.append_space.to_string()),
         SettingUpdate::new("ui", "theme", quoted(ui_theme_id(settings.ui_theme))),
@@ -372,7 +420,7 @@ impl SettingUpdate {
 
 #[cfg(test)]
 mod tests {
-    use glossa_core::{InputBackend, InputMode, PasteMode, ProviderKind, UiTheme};
+    use glossa_core::{InputBackend, InputMode, LatencyMode, PasteMode, ProviderKind, UiTheme};
 
     use super::{apply_settings_to_config, quoted, SettingsValues};
 
@@ -404,6 +452,8 @@ trim_threshold = 500
 min_duration_ms = 150
 max_duration_sec = 120
 persist_audio = false
+latency_mode = "balanced"
+keepalive_after_stop_seconds = 60
 
 [paste]
 mode = "ctrl-v"
@@ -442,6 +492,8 @@ file = false
             provider_api_key: "env:CUSTOM_KEY".into(),
             paste_mode: PasteMode::ShiftInsert,
             append_space: true,
+            latency_mode: LatencyMode::Instant,
+            keepalive_after_stop_seconds: 30,
             ui_theme: UiTheme::Light,
         }
     }
@@ -478,6 +530,8 @@ trim_threshold = 500
 min_duration_ms = 150
 max_duration_sec = 120
 persist_audio = false
+latency_mode = "instant"
+keepalive_after_stop_seconds = 30
 
 [paste]
 mode = "shift-insert"
@@ -551,12 +605,80 @@ trim_threshold = 500
 min_duration_ms = 150
 max_duration_sec = 120
 persist_audio = false
+latency_mode = "instant"
+keepalive_after_stop_seconds = 30
 
 [paste]
 mode = "shift-insert"
 clipboard_command = "wl-copy"
 type_command = "dotoolc"
 append_space = true
+
+[ui]
+theme = "light"
+tray = true
+idle_icon = "/tmp/idle.png"
+recording_icon = "/tmp/recording.png"
+processing_icon = "/tmp/processing.png"
+idle_dark_icon = "/tmp/idle_dark.png"
+recording_dark_icon = "/tmp/recording_dark.png"
+processing_dark_icon = "/tmp/processing_dark.png"
+start_sound = "/tmp/start.wav"
+stop_sound = "/tmp/stop.wav"
+
+[logging]
+level = "info"
+journal = true
+file = false
+"#;
+
+        assert_eq!(updated, expected);
+    }
+
+    #[test]
+    fn apply_settings_to_config_should_insert_missing_latency_settings_into_audio_section() {
+        let source = valid_config_source()
+            .replace("latency_mode = \"balanced\"\n", "")
+            .replace("keepalive_after_stop_seconds = 60\n", "");
+
+        let updated = apply_settings_to_config(&source, &updated_settings())
+            .expect("missing latency settings should be inserted");
+
+        let expected = r#"[input]
+# Backend comment
+backend = "none"
+mode = "toggle"
+shortcut = "<Ctrl><Alt>space"
+
+[control]
+enable_cli = false # keep this comment
+socket_path = "auto"
+
+[provider]
+kind = "openai-compatible"
+base_url = "https://example.com/v1"
+model = "custom-model"
+api_key = "env:CUSTOM_KEY"
+
+[audio]
+enabled = true
+work_dir = "auto"
+format = "wav"
+sample_rate_hz = 16000
+channels = 1
+trim_silence = true
+trim_threshold = 500
+min_duration_ms = 150
+max_duration_sec = 120
+persist_audio = false
+latency_mode = "instant"
+keepalive_after_stop_seconds = 30
+
+[paste]
+mode = "shift-insert"
+append_space = true # keep this comment
+clipboard_command = "wl-copy"
+type_command = "dotoolc"
 
 [ui]
 theme = "light"

@@ -39,6 +39,7 @@ pub enum Command {
 #[derive(Debug, Subcommand)]
 pub enum CtlCommand {
     Toggle,
+    Stream,
     Shutdown,
 }
 
@@ -122,6 +123,19 @@ mod tests {
             cli.command,
             super::Command::Service {
                 service: ServiceCommand::Restart
+            }
+        ));
+    }
+
+    #[test]
+    fn ctl_stream_subcommand_should_parse() {
+        let cli =
+            Cli::try_parse_from(["glossa", "ctl", "stream"]).expect("ctl stream should parse");
+
+        assert!(matches!(
+            cli.command,
+            super::Command::Ctl {
+                ctl: super::CtlCommand::Stream
             }
         ));
     }

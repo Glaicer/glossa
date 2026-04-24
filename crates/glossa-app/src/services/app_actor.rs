@@ -1,9 +1,14 @@
-use std::{sync::Arc, time::Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
-use glossa_core::{AppCommand, AppConfig, AppState, PastingState, RecordSpec, SessionId};
+use glossa_core::{
+    AppCommand, AppConfig, AppState, LatencyMode, PastingState, RecordSpec, SessionId,
+};
 
 use crate::{
     machine::{reduce, Action},
@@ -45,6 +50,7 @@ pub struct AppActor {
     internal_tx: mpsc::UnboundedSender<InternalEvent>,
     internal_rx: mpsc::UnboundedReceiver<InternalEvent>,
     status_store: StatusStore,
+    manual_input_stream_override: Option<bool>,
 }
 
 /// Reason why the actor stopped processing commands.
@@ -72,6 +78,7 @@ impl AppActor {
             internal_tx,
             internal_rx,
             status_store,
+            manual_input_stream_override: None,
         };
         (actor, handle)
     }
@@ -80,6 +87,7 @@ impl AppActor {
     pub async fn run(mut self) -> Result<ActorExit, AppError> {
         self.deps.temp_store.cleanup_stale_files().await?;
         self.set_tray_state(TrayState::Idle).await;
+        self.apply_initial_latency_policy().await;
         self.publish_status();
 
         loop {
@@ -127,6 +135,15 @@ impl AppActor {
                     if let Err(error) = self.deps.cue_player.play_stop().await {
                         warn!(error = %error, "failed to play stop cue");
                     }
+                }
+                Action::ToggleInputStream => {
+                    self.toggle_input_stream().await;
+                }
+                Action::EnableInputStream => {
+                    self.enable_input_stream().await;
+                }
+                Action::DisableInputStream => {
+                    self.disable_input_stream().await;
                 }
                 Action::Ignore { reason } => {
                     info!(reason, "ignored command");
@@ -180,6 +197,9 @@ impl AppActor {
             } => {
                 self.finish_cycle(session_id, outcome).await;
             }
+            InternalEvent::IdleStreamStatusRefresh => {
+                self.update_mic_stream_tray_state().await;
+            }
         }
         Ok(())
     }
@@ -223,9 +243,12 @@ impl AppActor {
                 let _ = self.deps.tray.show_error(&error_message).await;
             }
         }
+
+        self.apply_post_recording_latency_policy().await;
     }
 
     async fn start_recording(&mut self, session_id: SessionId) -> Result<(), AppError> {
+        self.close_idle_stream_for_recording().await;
         let startup_started_at = Instant::now();
         let path_started_at = Instant::now();
         let path = self
@@ -270,6 +293,7 @@ impl AppActor {
                 self.state = AppState::Idle;
                 self.publish_status();
                 self.set_tray_state(TrayState::Idle).await;
+                self.apply_post_recording_latency_policy().await;
                 let _ = self.deps.temp_store.cleanup_session(session_id).await;
                 let _ = self.deps.tray.show_error(&error.to_string()).await;
             }
@@ -283,6 +307,7 @@ impl AppActor {
             self.state = AppState::Idle;
             self.publish_status();
             self.set_tray_state(TrayState::Idle).await;
+            self.apply_post_recording_latency_policy().await;
             return Ok(());
         };
 
@@ -301,6 +326,7 @@ impl AppActor {
                     .await;
             }
         }
+        self.apply_post_recording_latency_policy().await;
         Ok(())
     }
 
@@ -325,10 +351,133 @@ impl AppActor {
         if let Some(recording) = self.active_recording.take() {
             let _ = recording.abort().await;
         }
+        self.ensure_idle_stream_off("failed to close idle input stream during shutdown")
+            .await;
         self.state = AppState::ShuttingDown;
         self.publish_status();
         self.set_tray_state(TrayState::Idle).await;
+        self.set_mic_stream_tray_state(false).await;
         Ok(())
+    }
+
+    async fn apply_initial_latency_policy(&self) {
+        if self.config.audio.latency_mode == LatencyMode::Instant {
+            self.ensure_idle_stream_on("failed to start instant idle input stream")
+                .await;
+        } else {
+            self.ensure_idle_stream_off("failed to close idle input stream at startup")
+                .await;
+        }
+        self.update_mic_stream_tray_state().await;
+    }
+
+    async fn close_idle_stream_for_recording(&self) {
+        self.ensure_idle_stream_off("failed to close idle input stream before recording")
+            .await;
+        self.update_mic_stream_tray_state().await;
+    }
+
+    async fn apply_post_recording_latency_policy(&self) {
+        match self.manual_input_stream_override {
+            Some(true) => {
+                self.ensure_idle_stream_on("failed to start manually enabled idle input stream")
+                    .await;
+            }
+            Some(false) => {
+                self.ensure_idle_stream_off("failed to keep idle input stream disabled")
+                    .await;
+            }
+            None => match self.config.audio.latency_mode {
+                LatencyMode::Off => {
+                    self.ensure_idle_stream_off("failed to close idle input stream")
+                        .await;
+                }
+                LatencyMode::Balanced => {
+                    let timeout =
+                        Duration::from_secs(self.config.audio.keepalive_after_stop_seconds);
+                    if let Err(error) = self
+                        .deps
+                        .audio_capture
+                        .schedule_idle_stream_timeout(timeout)
+                        .await
+                    {
+                        warn!(error = %error, "failed to schedule balanced idle input stream");
+                    } else {
+                        self.spawn_idle_stream_status_refresh(timeout);
+                    }
+                }
+                LatencyMode::Instant => {
+                    self.ensure_idle_stream_on("failed to start instant idle input stream")
+                        .await;
+                }
+            },
+        }
+        self.update_mic_stream_tray_state().await;
+    }
+
+    async fn enable_input_stream(&mut self) {
+        self.manual_input_stream_override = Some(true);
+        if self.active_recording.is_none() {
+            if let Err(error) = self.deps.audio_capture.ensure_idle_stream_on().await {
+                warn!(error = %error, "failed to manually enable idle input stream");
+                let _ = self.deps.tray.show_error(&error.to_string()).await;
+            }
+        }
+        self.update_mic_stream_tray_state().await;
+    }
+
+    async fn toggle_input_stream(&mut self) {
+        let active = self.manual_input_stream_override == Some(true)
+            || self.deps.audio_capture.is_idle_stream_active().await;
+        if active {
+            self.disable_input_stream().await;
+        } else {
+            self.enable_input_stream().await;
+        }
+    }
+
+    async fn disable_input_stream(&mut self) {
+        self.manual_input_stream_override =
+            if self.config.audio.latency_mode == LatencyMode::Instant {
+                Some(false)
+            } else {
+                None
+            };
+        self.ensure_idle_stream_off("failed to manually disable idle input stream")
+            .await;
+        self.update_mic_stream_tray_state().await;
+    }
+
+    async fn ensure_idle_stream_on(&self, log_message: &'static str) {
+        if let Err(error) = self.deps.audio_capture.ensure_idle_stream_on().await {
+            warn!(error = %error, "{log_message}");
+        }
+    }
+
+    async fn ensure_idle_stream_off(&self, log_message: &'static str) {
+        if let Err(error) = self.deps.audio_capture.ensure_idle_stream_off().await {
+            warn!(error = %error, "{log_message}");
+        }
+    }
+
+    async fn update_mic_stream_tray_state(&self) {
+        let active = self.manual_input_stream_override == Some(true)
+            || self.deps.audio_capture.is_idle_stream_active().await;
+        self.set_mic_stream_tray_state(active).await;
+    }
+
+    async fn set_mic_stream_tray_state(&self, active: bool) {
+        if let Err(error) = self.deps.tray.set_mic_stream_state(active).await {
+            warn!(error = %error, "failed to update tray mic stream state");
+        }
+    }
+
+    fn spawn_idle_stream_status_refresh(&self, timeout: Duration) {
+        let tx = self.internal_tx.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(timeout).await;
+            let _ = tx.send(InternalEvent::IdleStreamStatusRefresh);
+        });
     }
 
     fn publish_status(&self) {
@@ -357,12 +506,15 @@ impl AppActor {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Mutex};
+    use std::{
+        sync::{Arc, Mutex},
+        time::Duration,
+    };
 
     use async_trait::async_trait;
     use camino::{Utf8Path, Utf8PathBuf};
 
-    use glossa_core::{AppStateKind, AudioFormat, CapturedAudio, CommandOrigin};
+    use glossa_core::{AppStateKind, AudioFormat, CapturedAudio, CommandOrigin, LatencyMode};
 
     use super::*;
     use crate::ports::{
@@ -391,6 +543,10 @@ mod tests {
     struct RecordingLifecycle {
         stop_calls: Mutex<Vec<SessionId>>,
         abort_calls: Mutex<Vec<SessionId>>,
+        idle_on_calls: Mutex<usize>,
+        idle_off_calls: Mutex<usize>,
+        idle_timeout_calls: Mutex<Vec<Duration>>,
+        idle_active: Mutex<bool>,
     }
 
     struct TrackingRecording {
@@ -410,6 +566,22 @@ mod tests {
             *self.started.lock().expect("mutex should not be poisoned") = true;
             Ok(Box::new(FakeRecording))
         }
+
+        async fn ensure_idle_stream_on(&self) -> Result<(), AppError> {
+            Ok(())
+        }
+
+        async fn ensure_idle_stream_off(&self) -> Result<(), AppError> {
+            Ok(())
+        }
+
+        async fn schedule_idle_stream_timeout(&self, _timeout: Duration) -> Result<(), AppError> {
+            Ok(())
+        }
+
+        async fn is_idle_stream_active(&self) -> bool {
+            false
+        }
     }
 
     #[async_trait]
@@ -427,6 +599,34 @@ mod tests {
                 .push("start-recording");
             Ok(Box::new(FakeRecording))
         }
+
+        async fn ensure_idle_stream_on(&self) -> Result<(), AppError> {
+            self.events
+                .lock()
+                .expect("mutex should not be poisoned")
+                .push("idle-on");
+            Ok(())
+        }
+
+        async fn ensure_idle_stream_off(&self) -> Result<(), AppError> {
+            self.events
+                .lock()
+                .expect("mutex should not be poisoned")
+                .push("idle-off");
+            Ok(())
+        }
+
+        async fn schedule_idle_stream_timeout(&self, _timeout: Duration) -> Result<(), AppError> {
+            self.events
+                .lock()
+                .expect("mutex should not be poisoned")
+                .push("idle-timeout");
+            Ok(())
+        }
+
+        async fn is_idle_stream_active(&self) -> bool {
+            false
+        }
     }
 
     #[async_trait]
@@ -442,6 +642,56 @@ mod tests {
                 session_id,
                 lifecycle: Arc::clone(&self.lifecycle),
             }))
+        }
+
+        async fn ensure_idle_stream_on(&self) -> Result<(), AppError> {
+            *self
+                .lifecycle
+                .idle_on_calls
+                .lock()
+                .expect("mutex should not be poisoned") += 1;
+            *self
+                .lifecycle
+                .idle_active
+                .lock()
+                .expect("mutex should not be poisoned") = true;
+            Ok(())
+        }
+
+        async fn ensure_idle_stream_off(&self) -> Result<(), AppError> {
+            *self
+                .lifecycle
+                .idle_off_calls
+                .lock()
+                .expect("mutex should not be poisoned") += 1;
+            *self
+                .lifecycle
+                .idle_active
+                .lock()
+                .expect("mutex should not be poisoned") = false;
+            Ok(())
+        }
+
+        async fn schedule_idle_stream_timeout(&self, timeout: Duration) -> Result<(), AppError> {
+            self.lifecycle
+                .idle_timeout_calls
+                .lock()
+                .expect("mutex should not be poisoned")
+                .push(timeout);
+            *self
+                .lifecycle
+                .idle_active
+                .lock()
+                .expect("mutex should not be poisoned") = true;
+            Ok(())
+        }
+
+        async fn is_idle_stream_active(&self) -> bool {
+            *self
+                .lifecycle
+                .idle_active
+                .lock()
+                .expect("mutex should not be poisoned")
         }
     }
 
@@ -621,6 +871,7 @@ mod tests {
     #[derive(Debug, Default)]
     struct TrackingTray {
         states: Mutex<Vec<TrayState>>,
+        mic_stream_states: Mutex<Vec<bool>>,
         errors: Mutex<Vec<String>>,
     }
 
@@ -701,6 +952,14 @@ mod tests {
             Ok(())
         }
 
+        async fn set_mic_stream_state(&self, active: bool) -> Result<(), AppError> {
+            self.mic_stream_states
+                .lock()
+                .expect("mutex should not be poisoned")
+                .push(active);
+            Ok(())
+        }
+
         async fn show_error(&self, message: &str) -> Result<(), AppError> {
             self.errors
                 .lock()
@@ -757,7 +1016,46 @@ mod tests {
         assert_eq!(exit, None);
         assert_eq!(
             *events.lock().expect("mutex should not be poisoned"),
-            vec!["start-recording", "play-start-cue"]
+            vec!["idle-off", "start-recording", "play-start-cue"]
+        );
+    }
+
+    #[tokio::test]
+    async fn normal_stop_should_schedule_balanced_keepalive() {
+        let lifecycle = Arc::new(RecordingLifecycle::default());
+        let deps = AppDependencies {
+            audio_capture: Arc::new(TrackingAudioCapture {
+                lifecycle: Arc::clone(&lifecycle),
+            }),
+            trimmer: Arc::new(FakeTrimmer),
+            cue_player: Arc::new(FakeCuePlayer),
+            stt_client: Arc::new(FakeSttClient),
+            clipboard: Arc::new(FakeClipboard),
+            paste: Arc::new(FakePaste),
+            tray: Arc::new(crate::ports::NullTrayPort),
+            temp_store: Arc::new(FakeTempStore),
+        };
+        let (mut actor, _handle) = AppActor::new(AppConfig::default(), deps);
+
+        actor
+            .handle_command(AppCommand::ToggleRecording {
+                origin: CommandOrigin::CliControl,
+            })
+            .await
+            .expect("start should succeed");
+        actor
+            .handle_command(AppCommand::ToggleRecording {
+                origin: CommandOrigin::CliControl,
+            })
+            .await
+            .expect("stop should succeed");
+
+        assert_eq!(
+            *lifecycle
+                .idle_timeout_calls
+                .lock()
+                .expect("mutex should not be poisoned"),
+            vec![Duration::from_secs(60)]
         );
     }
 
@@ -848,6 +1146,13 @@ mod tests {
             *tray.states.lock().expect("mutex should not be poisoned"),
             vec![TrayState::Recording, TrayState::Idle]
         );
+        assert_eq!(
+            *lifecycle
+                .idle_timeout_calls
+                .lock()
+                .expect("mutex should not be poisoned"),
+            vec![Duration::from_secs(60)]
+        );
         assert!(
             tray.errors
                 .lock()
@@ -855,5 +1160,252 @@ mod tests {
                 .is_empty(),
             "cancel should not show tray errors"
         );
+    }
+
+    #[tokio::test]
+    async fn shutdown_should_close_idle_keepalive() {
+        let lifecycle = Arc::new(RecordingLifecycle::default());
+        let deps = AppDependencies {
+            audio_capture: Arc::new(TrackingAudioCapture {
+                lifecycle: Arc::clone(&lifecycle),
+            }),
+            trimmer: Arc::new(FakeTrimmer),
+            cue_player: Arc::new(FakeCuePlayer),
+            stt_client: Arc::new(FakeSttClient),
+            clipboard: Arc::new(FakeClipboard),
+            paste: Arc::new(FakePaste),
+            tray: Arc::new(crate::ports::NullTrayPort),
+            temp_store: Arc::new(FakeTempStore),
+        };
+        let (mut actor, _handle) = AppActor::new(AppConfig::default(), deps);
+
+        actor
+            .handle_command(AppCommand::Shutdown {
+                origin: CommandOrigin::TrayMenu,
+            })
+            .await
+            .expect("shutdown should succeed");
+
+        assert_eq!(
+            *lifecycle
+                .idle_off_calls
+                .lock()
+                .expect("mutex should not be poisoned"),
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn tray_input_stream_commands_should_update_balanced_override_and_status() {
+        let lifecycle = Arc::new(RecordingLifecycle::default());
+        let tray = Arc::new(TrackingTray::default());
+        let deps = AppDependencies {
+            audio_capture: Arc::new(TrackingAudioCapture {
+                lifecycle: Arc::clone(&lifecycle),
+            }),
+            trimmer: Arc::new(FakeTrimmer),
+            cue_player: Arc::new(FakeCuePlayer),
+            stt_client: Arc::new(FakeSttClient),
+            clipboard: Arc::new(FakeClipboard),
+            paste: Arc::new(FakePaste),
+            tray: tray.clone(),
+            temp_store: Arc::new(FakeTempStore),
+        };
+        let (mut actor, _handle) = AppActor::new(AppConfig::default(), deps);
+
+        actor
+            .handle_command(AppCommand::EnableInputStream {
+                origin: CommandOrigin::TrayMenu,
+            })
+            .await
+            .expect("enable should succeed");
+        actor
+            .handle_command(AppCommand::DisableInputStream {
+                origin: CommandOrigin::TrayMenu,
+            })
+            .await
+            .expect("disable should succeed");
+
+        assert_eq!(actor.manual_input_stream_override, None);
+        assert_eq!(
+            *lifecycle
+                .idle_on_calls
+                .lock()
+                .expect("mutex should not be poisoned"),
+            1
+        );
+        assert_eq!(
+            *lifecycle
+                .idle_off_calls
+                .lock()
+                .expect("mutex should not be poisoned"),
+            1
+        );
+        assert_eq!(
+            *tray
+                .mic_stream_states
+                .lock()
+                .expect("mutex should not be poisoned"),
+            vec![true, false]
+        );
+    }
+
+    #[tokio::test]
+    async fn toggle_input_stream_command_should_match_tray_toggle_behavior() {
+        let lifecycle = Arc::new(RecordingLifecycle::default());
+        let tray = Arc::new(TrackingTray::default());
+        let deps = AppDependencies {
+            audio_capture: Arc::new(TrackingAudioCapture {
+                lifecycle: Arc::clone(&lifecycle),
+            }),
+            trimmer: Arc::new(FakeTrimmer),
+            cue_player: Arc::new(FakeCuePlayer),
+            stt_client: Arc::new(FakeSttClient),
+            clipboard: Arc::new(FakeClipboard),
+            paste: Arc::new(FakePaste),
+            tray: tray.clone(),
+            temp_store: Arc::new(FakeTempStore),
+        };
+        let (mut actor, _handle) = AppActor::new(AppConfig::default(), deps);
+
+        actor
+            .handle_command(AppCommand::ToggleInputStream {
+                origin: CommandOrigin::CliControl,
+            })
+            .await
+            .expect("first toggle should enable stream");
+        actor
+            .handle_command(AppCommand::ToggleInputStream {
+                origin: CommandOrigin::CliControl,
+            })
+            .await
+            .expect("second toggle should disable stream");
+
+        assert_eq!(actor.manual_input_stream_override, None);
+        assert_eq!(
+            *lifecycle
+                .idle_on_calls
+                .lock()
+                .expect("mutex should not be poisoned"),
+            1
+        );
+        assert_eq!(
+            *lifecycle
+                .idle_off_calls
+                .lock()
+                .expect("mutex should not be poisoned"),
+            1
+        );
+        assert_eq!(
+            *tray
+                .mic_stream_states
+                .lock()
+                .expect("mutex should not be poisoned"),
+            vec![true, false]
+        );
+    }
+
+    #[tokio::test]
+    async fn balanced_tray_off_should_allow_keepalive_after_next_recording() {
+        let lifecycle = Arc::new(RecordingLifecycle::default());
+        let deps = AppDependencies {
+            audio_capture: Arc::new(TrackingAudioCapture {
+                lifecycle: Arc::clone(&lifecycle),
+            }),
+            trimmer: Arc::new(FakeTrimmer),
+            cue_player: Arc::new(FakeCuePlayer),
+            stt_client: Arc::new(FakeSttClient),
+            clipboard: Arc::new(FakeClipboard),
+            paste: Arc::new(FakePaste),
+            tray: Arc::new(crate::ports::NullTrayPort),
+            temp_store: Arc::new(FakeTempStore),
+        };
+        let (mut actor, _handle) = AppActor::new(AppConfig::default(), deps);
+
+        actor
+            .handle_command(AppCommand::DisableInputStream {
+                origin: CommandOrigin::TrayMenu,
+            })
+            .await
+            .expect("disable should succeed");
+        actor
+            .handle_command(AppCommand::ToggleRecording {
+                origin: CommandOrigin::CliControl,
+            })
+            .await
+            .expect("start should succeed");
+        actor
+            .handle_command(AppCommand::ToggleRecording {
+                origin: CommandOrigin::CliControl,
+            })
+            .await
+            .expect("stop should succeed");
+
+        assert_eq!(actor.manual_input_stream_override, None);
+        assert_eq!(
+            *lifecycle
+                .idle_timeout_calls
+                .lock()
+                .expect("mutex should not be poisoned"),
+            vec![Duration::from_secs(60)]
+        );
+    }
+
+    #[tokio::test]
+    async fn instant_tray_off_should_suppress_automatic_keepalive_for_session() {
+        let lifecycle = Arc::new(RecordingLifecycle::default());
+        let deps = AppDependencies {
+            audio_capture: Arc::new(TrackingAudioCapture {
+                lifecycle: Arc::clone(&lifecycle),
+            }),
+            trimmer: Arc::new(FakeTrimmer),
+            cue_player: Arc::new(FakeCuePlayer),
+            stt_client: Arc::new(FakeSttClient),
+            clipboard: Arc::new(FakeClipboard),
+            paste: Arc::new(FakePaste),
+            tray: Arc::new(crate::ports::NullTrayPort),
+            temp_store: Arc::new(FakeTempStore),
+        };
+        let config = AppConfig {
+            audio: glossa_core::AudioConfig {
+                latency_mode: LatencyMode::Instant,
+                ..glossa_core::AudioConfig::default()
+            },
+            ..AppConfig::default()
+        };
+        let (mut actor, _handle) = AppActor::new(config, deps);
+
+        actor
+            .handle_command(AppCommand::DisableInputStream {
+                origin: CommandOrigin::TrayMenu,
+            })
+            .await
+            .expect("disable should succeed");
+        actor
+            .handle_command(AppCommand::ToggleRecording {
+                origin: CommandOrigin::CliControl,
+            })
+            .await
+            .expect("start should succeed");
+        actor
+            .handle_command(AppCommand::ToggleRecording {
+                origin: CommandOrigin::CliControl,
+            })
+            .await
+            .expect("stop should succeed");
+
+        assert_eq!(actor.manual_input_stream_override, Some(false));
+        assert_eq!(
+            *lifecycle
+                .idle_on_calls
+                .lock()
+                .expect("mutex should not be poisoned"),
+            0
+        );
+        assert!(lifecycle
+            .idle_timeout_calls
+            .lock()
+            .expect("mutex should not be poisoned")
+            .is_empty());
     }
 }

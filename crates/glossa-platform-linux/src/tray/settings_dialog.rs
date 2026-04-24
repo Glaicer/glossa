@@ -6,9 +6,9 @@ use gtk::{
 use glossa_app::AppError;
 
 use super::settings::{
-    input_backend_id, input_mode_id, parse_input_backend, parse_input_mode, parse_paste_mode,
-    parse_provider_kind, parse_ui_theme, paste_mode_id, provider_kind_id, ui_theme_id,
-    SettingsValues,
+    input_backend_id, input_mode_id, latency_mode_id, parse_input_backend, parse_input_mode,
+    parse_latency_mode, parse_paste_mode, parse_provider_kind, parse_ui_theme, paste_mode_id,
+    provider_kind_id, ui_theme_id, SettingsValues,
 };
 
 const INPUT_BACKEND_TOOLTIP: &str =
@@ -28,6 +28,10 @@ const PROVIDER_API_KEY_TOOLTIP: &str =
 const PASTE_MODE_TOOLTIP: &str = "Selects which keyboard shortcut dotool should emulate for paste.";
 const APPEND_SPACE_TOOLTIP: &str =
     "Appends one trailing space to the pasted transcription for continuous dictation.";
+const LATENCY_MODE_TOOLTIP: &str =
+    "Selects idle microphone stream policy. Options: off, balanced, or instant.";
+const KEEPALIVE_AFTER_STOP_SECONDS_TOOLTIP: &str =
+    "Sets how many seconds balanced mode keeps the microphone stream warm after recording stops.";
 const UI_THEME_TOOLTIP: &str = "Selects which tray icon set to use. Options: dark or light.";
 
 pub(super) fn edit_settings(current: &SettingsValues) -> Result<Option<SettingsValues>, AppError> {
@@ -40,7 +44,7 @@ pub(super) fn edit_settings(current: &SettingsValues) -> Result<Option<SettingsV
             ("Save", ResponseType::Accept),
         ],
     );
-    dialog.set_default_size(560, 520);
+    dialog.set_default_size(560, 580);
     dialog.set_resizable(true);
     dialog.set_keep_above(true);
     dialog.set_default_response(ResponseType::Accept);
@@ -124,6 +128,37 @@ pub(super) fn edit_settings(current: &SettingsValues) -> Result<Option<SettingsV
     );
     container.pack_start(&wrap_section("Provider", &provider_grid), false, false, 0);
 
+    let audio_grid = create_section_grid();
+    let latency_mode = create_combo(
+        &[
+            ("off", "off"),
+            ("balanced", "balanced"),
+            ("instant", "instant"),
+        ],
+        latency_mode_id(current.latency_mode),
+        LATENCY_MODE_TOOLTIP,
+    );
+    attach_row(
+        &audio_grid,
+        0,
+        "Latency mode",
+        LATENCY_MODE_TOOLTIP,
+        &latency_mode,
+    );
+    let keepalive_after_stop_seconds = create_entry(
+        &current.keepalive_after_stop_seconds.to_string(),
+        KEEPALIVE_AFTER_STOP_SECONDS_TOOLTIP,
+        false,
+    );
+    attach_row(
+        &audio_grid,
+        1,
+        "Keepalive seconds",
+        KEEPALIVE_AFTER_STOP_SECONDS_TOOLTIP,
+        &keepalive_after_stop_seconds,
+    );
+    container.pack_start(&wrap_section("Audio", &audio_grid), false, false, 0);
+
     let paste_grid = create_section_grid();
     let paste_mode = create_combo(
         &[
@@ -176,6 +211,11 @@ pub(super) fn edit_settings(current: &SettingsValues) -> Result<Option<SettingsV
             paste_mode: parse_paste_mode(&selected_id(&paste_mode, "paste mode")?)
                 .ok_or_else(|| AppError::message("paste mode selection is invalid"))?,
             append_space: append_space.is_active(),
+            latency_mode: parse_latency_mode(&selected_id(&latency_mode, "latency mode")?)
+                .ok_or_else(|| AppError::message("latency mode selection is invalid"))?,
+            keepalive_after_stop_seconds: parse_keepalive_seconds(
+                keepalive_after_stop_seconds.text().as_str(),
+            )?,
             ui_theme: parse_ui_theme(&selected_id(&theme, "UI theme")?)
                 .ok_or_else(|| AppError::message("UI theme selection is invalid"))?,
         })
@@ -262,4 +302,18 @@ fn selected_id(combo: &ComboBoxText, label: &str) -> Result<String, AppError> {
         .active_id()
         .map(|value| value.to_string())
         .ok_or_else(|| AppError::message(format!("{label} must be selected")))
+}
+
+fn parse_keepalive_seconds(value: &str) -> Result<u64, AppError> {
+    let seconds = value.trim().parse::<u64>().map_err(|_| {
+        AppError::message("keepalive_after_stop_seconds must be a positive integer")
+    })?;
+
+    if seconds == 0 {
+        return Err(AppError::message(
+            "keepalive_after_stop_seconds must be greater than zero",
+        ));
+    }
+
+    Ok(seconds)
 }

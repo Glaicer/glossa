@@ -3,6 +3,15 @@ use serde::{Deserialize, Serialize};
 
 use crate::{AudioFormat, CoreError};
 
+/// Idle microphone stream policy used to reduce cold-start recording latency.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum LatencyMode {
+    Off,
+    Balanced,
+    Instant,
+}
+
 /// Audio capture and processing settings.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AudioConfig {
@@ -18,6 +27,10 @@ pub struct AudioConfig {
     pub max_duration_sec: u32,
     #[serde(default)]
     pub persist_audio: bool,
+    #[serde(default = "default_latency_mode")]
+    pub latency_mode: LatencyMode,
+    #[serde(default = "default_keepalive_after_stop_seconds")]
+    pub keepalive_after_stop_seconds: u64,
 }
 
 impl Default for AudioConfig {
@@ -33,6 +46,8 @@ impl Default for AudioConfig {
             min_duration_ms: 150,
             max_duration_sec: 120,
             persist_audio: false,
+            latency_mode: default_latency_mode(),
+            keepalive_after_stop_seconds: default_keepalive_after_stop_seconds(),
         }
     }
 }
@@ -59,6 +74,11 @@ impl AudioConfig {
                 "audio.max_duration_sec must be greater than zero".into(),
             ));
         }
+        if self.keepalive_after_stop_seconds == 0 {
+            return Err(CoreError::InvalidConfig(
+                "audio.keepalive_after_stop_seconds must be greater than zero".into(),
+            ));
+        }
         if self.format == AudioFormat::Flac {
             return Err(CoreError::InvalidConfig(
                 "audio.format flac is not implemented yet; use wav for the MVP".into(),
@@ -70,6 +90,14 @@ impl AudioConfig {
 
 fn default_audio_enabled() -> bool {
     true
+}
+
+fn default_latency_mode() -> LatencyMode {
+    LatencyMode::Balanced
+}
+
+fn default_keepalive_after_stop_seconds() -> u64 {
+    60
 }
 
 /// Working directory selection for temporary recordings.

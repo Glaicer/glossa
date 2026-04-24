@@ -60,7 +60,7 @@ pub fn build_actor(
 ) -> anyhow::Result<(AppActor, glossa_app::AppHandle)> {
     let temp_store = Arc::new(XdgTempStore::from_audio_config(&config.audio)?);
     let deps = AppDependencies {
-        audio_capture: Arc::new(CpalAudioCapture),
+        audio_capture: Arc::new(CpalAudioCapture::new()),
         trimmer: Arc::new(WavSilenceTrimmer::new(config.audio.trim_threshold)),
         cue_player: Arc::new(CuePlayerBackend::from_config(
             config.audio.enabled,

@@ -28,7 +28,7 @@ use tokio::process::Command as TokioCommand;
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{info, warn};
 use tray_icon::{
-    menu::{Menu, MenuEvent, MenuItem},
+    menu::{CheckMenuItem, Menu, MenuEvent, MenuItem},
     Icon, TrayIcon, TrayIconBuilder,
 };
 
@@ -202,6 +202,11 @@ impl TrayPort for BestEffortTrayPort {
         Ok(())
     }
 
+    async fn set_mic_stream_state(&self, active: bool) -> Result<(), AppError> {
+        self.send_command(TrayCommand::SetMicStreamState(active));
+        Ok(())
+    }
+
     async fn show_error(&self, message: &str) -> Result<(), AppError> {
         if let Err(error) = send_error_notification(message).await {
             warn!(error = %error, message, "failed to show desktop notification");
@@ -220,6 +225,7 @@ struct ShortcutBindingConfig {
 enum TrayCommand {
     SetState(TrayState),
     SetShortcutDescription(Option<String>),
+    SetMicStreamState(bool),
     Shutdown,
 }
 
@@ -259,6 +265,9 @@ fn run_tray_thread(
             Ok(TrayCommand::SetShortcutDescription(description)) => {
                 runtime.set_shortcut_description(description);
             }
+            Ok(TrayCommand::SetMicStreamState(active)) => {
+                runtime.set_mic_stream_state(active);
+            }
             Ok(TrayCommand::Shutdown) => break,
             Err(mpsc::RecvTimeoutError::Timeout) => continue,
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
@@ -297,6 +306,8 @@ struct TrayRuntime {
     change_shortcut_id: Option<tray_icon::menu::MenuId>,
     settings_id: tray_icon::menu::MenuId,
     update_id: tray_icon::menu::MenuId,
+    mic_stream_id: tray_icon::menu::MenuId,
+    mic_stream_item: CheckMenuItem,
     exit_id: tray_icon::menu::MenuId,
     icons: TrayIcons,
     shortcut_binding: RefCell<Option<ShortcutBindingConfig>>,
@@ -323,6 +334,8 @@ impl TrayRuntime {
         let update_item = MenuItem::new("Update", true, None);
         let update_id = update_item.id().clone();
         let version_item = MenuItem::new(&tray_version_label(), false, None);
+        let mic_stream_item = CheckMenuItem::new(&mic_stream_label(false), true, false, None);
+        let mic_stream_id = mic_stream_item.id().clone();
         let exit_item = MenuItem::new("Exit", true, None);
         let exit_id = exit_item.id().clone();
 
@@ -334,6 +347,8 @@ impl TrayRuntime {
         menu.append(&settings_item)
             .map_err(|error| format!("failed to build tray menu: {error}"))?;
         menu.append(&update_item)
+            .map_err(|error| format!("failed to build tray menu: {error}"))?;
+        menu.append(&mic_stream_item)
             .map_err(|error| format!("failed to build tray menu: {error}"))?;
         menu.append(&version_item)
             .map_err(|error| format!("failed to build tray menu: {error}"))?;
@@ -352,6 +367,8 @@ impl TrayRuntime {
             change_shortcut_id,
             settings_id,
             update_id,
+            mic_stream_id,
+            mic_stream_item,
             exit_id,
             icons,
             shortcut_binding: RefCell::new(shortcut_binding),
@@ -379,6 +396,11 @@ impl TrayRuntime {
         }
     }
 
+    fn set_mic_stream_state(&self, active: bool) {
+        self.mic_stream_item.set_checked(active);
+        self.mic_stream_item.set_text(mic_stream_label(active));
+    }
+
     fn handle_menu_events(&self) {
         while let Ok(event) = MenuEvent::receiver().try_recv() {
             if self
@@ -400,6 +422,11 @@ impl TrayRuntime {
                 continue;
             }
 
+            if event.id == self.mic_stream_id {
+                self.handle_mic_stream_toggle();
+                continue;
+            }
+
             if event.id != self.exit_id {
                 continue;
             }
@@ -409,6 +436,24 @@ impl TrayRuntime {
             }) {
                 warn!(error = %error, "failed to send shutdown command from tray");
             }
+        }
+    }
+
+    fn handle_mic_stream_toggle(&self) {
+        let active = self.mic_stream_item.is_checked();
+        self.set_mic_stream_state(active);
+        let command = if active {
+            AppCommand::EnableInputStream {
+                origin: CommandOrigin::TrayMenu,
+            }
+        } else {
+            AppCommand::DisableInputStream {
+                origin: CommandOrigin::TrayMenu,
+            }
+        };
+
+        if let Err(error) = self.send_app_command(command) {
+            warn!(error = %error, "failed to send input stream command from tray");
         }
     }
 
@@ -808,6 +853,14 @@ fn tray_version_label() -> String {
     format!("version: {}", env!("CARGO_PKG_VERSION"))
 }
 
+fn mic_stream_label(active: bool) -> &'static str {
+    if active {
+        "Mic stream: on"
+    } else {
+        "Mic stream: off"
+    }
+}
+
 fn show_confirmation_dialog(title: &str, message: &str) -> bool {
     let dialog = MessageDialog::new(
         None::<&Window>,
@@ -881,8 +934,8 @@ fn is_ubuntu() -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        normalize_captured_shortcut, notify_send_arguments, shortcut_override_value,
-        tray_version_label, ShortcutBindingConfig,
+        mic_stream_label, normalize_captured_shortcut, notify_send_arguments,
+        shortcut_override_value, tray_version_label, ShortcutBindingConfig,
     };
     use glossa_core::InputMode;
 
@@ -915,6 +968,12 @@ mod tests {
             tray_version_label(),
             format!("version: {}", env!("CARGO_PKG_VERSION"))
         );
+    }
+
+    #[test]
+    fn mic_stream_label_should_match_state() {
+        assert_eq!(mic_stream_label(true), "Mic stream: on");
+        assert_eq!(mic_stream_label(false), "Mic stream: off");
     }
 
     #[test]

@@ -7,6 +7,7 @@ use glossa_core::AppStatus;
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum IpcRequest {
     Toggle,
+    Stream,
     Status,
     Shutdown,
 }

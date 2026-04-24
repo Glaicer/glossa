@@ -19,6 +19,9 @@ pub enum AppCommand {
     StopRecording { origin: CommandOrigin },
     ToggleRecording { origin: CommandOrigin },
     CancelRecording { origin: CommandOrigin },
+    ToggleInputStream { origin: CommandOrigin },
+    EnableInputStream { origin: CommandOrigin },
+    DisableInputStream { origin: CommandOrigin },
     Restart { origin: CommandOrigin },
     Shutdown { origin: CommandOrigin },
 }

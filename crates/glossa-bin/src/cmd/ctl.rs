@@ -10,10 +10,7 @@ pub async fn run(
 ) -> anyhow::Result<()> {
     let socket_path = resolve_socket_path(config_path).await?;
     let client = IpcClient::new(socket_path);
-    let request = match command {
-        CtlCommand::Toggle => IpcRequest::Toggle,
-        CtlCommand::Shutdown => IpcRequest::Shutdown,
-    };
+    let request = ipc_request_for_ctl_command(command);
 
     let response = client.request(request).await?;
     match response {
@@ -25,5 +22,28 @@ pub async fn run(
         IpcResponse::Error { message } => {
             Err(anyhow!(message)).context("daemon rejected ctl command")
         }
+    }
+}
+
+fn ipc_request_for_ctl_command(command: CtlCommand) -> IpcRequest {
+    match command {
+        CtlCommand::Toggle => IpcRequest::Toggle,
+        CtlCommand::Stream => IpcRequest::Stream,
+        CtlCommand::Shutdown => IpcRequest::Shutdown,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ipc_request_for_ctl_command;
+    use crate::cli::CtlCommand;
+    use glossa_platform_linux::ipc::IpcRequest;
+
+    #[test]
+    fn ctl_stream_should_send_stream_ipc_request() {
+        assert_eq!(
+            ipc_request_for_ctl_command(CtlCommand::Stream),
+            IpcRequest::Stream
+        );
     }
 }

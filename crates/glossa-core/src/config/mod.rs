@@ -10,7 +10,7 @@ use std::env;
 use camino::Utf8PathBuf;
 use serde::{Deserialize, Serialize};
 
-pub use self::audio::{AudioConfig, WorkDir};
+pub use self::audio::{AudioConfig, LatencyMode, WorkDir};
 pub use self::input::{InputBackend, InputConfig, InputMode};
 pub use self::logging::{LogLevel, LoggingConfig};
 pub use self::paste::PasteConfig;
@@ -230,6 +230,19 @@ mod tests {
     }
 
     #[test]
+    fn default_config_should_use_balanced_latency_mode() {
+        assert_eq!(
+            AppConfig::default().audio.latency_mode,
+            LatencyMode::Balanced
+        );
+    }
+
+    #[test]
+    fn default_config_should_use_one_minute_keepalive_after_stop() {
+        assert_eq!(AppConfig::default().audio.keepalive_after_stop_seconds, 60);
+    }
+
+    #[test]
     fn default_config_should_enable_cue_audio() {
         assert!(AppConfig::default().audio.enabled);
     }
@@ -385,5 +398,84 @@ file = false
         assert!(!config.audio.enabled);
         assert!(matches!(config.audio.work_dir, WorkDir::Auto));
         assert!(!config.audio.persist_audio);
+        assert_eq!(config.audio.latency_mode, LatencyMode::Balanced);
+        assert_eq!(config.audio.keepalive_after_stop_seconds, 60);
+    }
+
+    #[test]
+    fn latency_mode_should_parse_documented_values() {
+        for (raw, expected) in [
+            ("off", LatencyMode::Off),
+            ("balanced", LatencyMode::Balanced),
+            ("instant", LatencyMode::Instant),
+        ] {
+            let config = AppConfig::from_toml_str(&format!(
+                r#"
+[input]
+backend = "portal"
+shortcut = "<Ctrl><Alt>space"
+mode = "toggle"
+
+[control]
+enable_cli = true
+socket_path = "auto"
+
+[provider]
+kind = "groq"
+base_url = "https://api.groq.com/openai/v1"
+model = "whisper-large-v3"
+api_key = "env:GROQ_API_KEY"
+
+[audio]
+enabled = true
+work_dir = "auto"
+format = "wav"
+sample_rate_hz = 16000
+channels = 1
+trim_silence = true
+trim_threshold = 500
+min_duration_ms = 150
+max_duration_sec = 120
+persist_audio = false
+latency_mode = "{raw}"
+keepalive_after_stop_seconds = 60
+
+[paste]
+mode = "ctrl-v"
+append_space = false
+clipboard_command = "wl-copy"
+type_command = "dotoolc"
+
+[ui]
+tray = true
+idle_icon = "/tmp/idle.png"
+recording_icon = "/tmp/recording.png"
+start_sound = "/tmp/start.wav"
+stop_sound = "/tmp/stop.wav"
+
+[logging]
+level = "info"
+journal = true
+file = false
+"#
+            ))
+            .expect("config should parse");
+
+            assert_eq!(config.audio.latency_mode, expected);
+        }
+    }
+
+    #[test]
+    fn config_should_reject_zero_keepalive_after_stop_seconds() {
+        let config = AppConfig {
+            audio: AudioConfig {
+                keepalive_after_stop_seconds: 0,
+                ..AudioConfig::default()
+            },
+            ..AppConfig::default()
+        };
+
+        let error = config.validate().expect_err("validation should fail");
+        assert!(error.to_string().contains("keepalive_after_stop_seconds"));
     }
 }
