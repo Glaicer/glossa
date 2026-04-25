@@ -23,6 +23,7 @@ I personally recommend using [Groq](https://groq.com/) as it offers the followin
 - Works with Groq, OpenAI, and other OpenAI-compatible STT providers (including self-hosted setups).
 - Easily configurable via `config.toml`.
 - Manage the installed user service with `glossa service start`, `stop`, and `restart`.
+- Includes microphone keepalive controls for lower recording startup latency.
 - Pastes using standard clipboard shortcuts such as `Ctrl+V`, `Ctrl+Shift+V`, or `Shift+Insert`, which helps with non-English input without switching keyboard layouts.
 
 ## Installation
@@ -74,6 +75,12 @@ Glossa provides these CLI commands:
 - `glossa doctor` runs environment and configuration diagnostics.
 - `glossa status` prints the current daemon status reported over IPC.
 - `glossa update` downloads and installs the latest release.
+
+## Configuration
+
+Most settings are available from the tray `Settings` menu, so you usually do not need to edit the config file by hand.
+
+If you want to configure Glossa manually, edit `~/.config/glossa/config.toml`. Use [config.toml](contrib/examples/config.toml) in this repository as the reference example.
 
 ## Updating
 
