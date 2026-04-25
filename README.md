@@ -56,8 +56,6 @@ Glossa is my attempt to make this whole workflow simpler and more reliable on Ub
 
 Planned features:
 
-- append trailing space after paste for continuous dictation
-- cancelling recording via Esc key
 - clipboard restore after paste
 - direct input support
 - FLAC recording
@@ -71,6 +69,7 @@ Glossa provides these CLI commands:
 - `glossa service stop` stops the installed `glossa` systemd user service.
 - `glossa service restart` restarts the installed `glossa` systemd user service.
 - `glossa ctl toggle` sends a toggle-recording command to the running daemon over IPC.
+- `glossa ctl stream` toggles the warm microphone stream, like the tray `Mic stream` item.
 - `glossa ctl shutdown` asks the running daemon to shut down over IPC.
 - `glossa doctor` runs environment and configuration diagnostics.
 - `glossa status` prints the current daemon status reported over IPC.
