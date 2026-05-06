@@ -21,6 +21,7 @@ I personally recommend using [Groq](https://groq.com/) as it offers the followin
 - Starts automatically with your system and works as a background daemon. Pastes transcribed text to the active input inside any window.
 - Supports both toggle and push-to-talk modes.
 - Works with Groq, OpenAI, and other OpenAI-compatible STT providers (including self-hosted setups).
+- Can optionally run each transcription through an OpenAI-compatible LLM enhancer before pasting, to fix punctuation and obvious transcription mistakes.
 - Easily configurable via `config.toml`.
 - Manage the installed user service with `glossa service start`, `stop`, and `restart`.
 - Includes microphone keepalive controls for lower recording startup latency.
@@ -81,6 +82,8 @@ Glossa provides these CLI commands:
 Most settings are available from the tray `Settings` menu, so you usually do not need to edit the config file by hand.
 
 If you want to configure Glossa manually, edit `~/.config/glossa/config.toml`. Use [config.toml](contrib/examples/config.toml) in this repository as the reference example.
+
+The tray has an `AI enhancer` checkbox. When it is off, Glossa pastes the speech-to-text result directly. When it is on, Glossa sends the transcribed text to the OpenAI-compatible chat endpoint first, then pastes the corrected response. Configure `enabled`, `base_url`, `model`, and `api_key` in the tray Settings → `LLM enhancer` window or in the `[LLM]` section of `config.toml`.
 
 ## Updating
 

@@ -14,7 +14,7 @@ use crate::{
     machine::{reduce, Action},
     ports::{
         ActiveRecording, AudioCapture, ClipboardWriter, CuePlayer, PasteBackend, SilenceTrimmer,
-        SttClient, TempStore, TrayPort, TrayState,
+        SttClient, TempStore, TextEnhancer, TrayPort, TrayState,
     },
     services::{
         command_router::AppHandle,
@@ -34,6 +34,7 @@ pub struct AppDependencies {
     pub trimmer: Arc<dyn SilenceTrimmer>,
     pub cue_player: Arc<dyn CuePlayer>,
     pub stt_client: Arc<dyn SttClient>,
+    pub text_enhancer: Arc<dyn TextEnhancer>,
     pub clipboard: Arc<dyn ClipboardWriter>,
     pub paste: Arc<dyn PasteBackend>,
     pub tray: Arc<dyn TrayPort>,
@@ -497,6 +498,7 @@ impl AppActor {
             config: Arc::clone(&self.config),
             trimmer: Arc::clone(&self.deps.trimmer),
             stt_client: Arc::clone(&self.deps.stt_client),
+            text_enhancer: Arc::clone(&self.deps.text_enhancer),
             clipboard: Arc::clone(&self.deps.clipboard),
             paste: Arc::clone(&self.deps.paste),
             temp_store: Arc::clone(&self.deps.temp_store),
@@ -518,8 +520,8 @@ mod tests {
 
     use super::*;
     use crate::ports::{
-        AudioCapture, ClipboardWriter, CuePlayer, PasteBackend, SilenceTrimmer, SttClient,
-        TempStore, TrayPort,
+        AudioCapture, ClipboardWriter, CuePlayer, NoopTextEnhancer, PasteBackend, SilenceTrimmer,
+        SttClient, TempStore, TrayPort,
     };
 
     #[derive(Debug)]
@@ -978,6 +980,7 @@ mod tests {
             trimmer: Arc::new(FakeTrimmer),
             cue_player: Arc::new(FakeCuePlayer),
             stt_client: Arc::new(FakeSttClient),
+            text_enhancer: Arc::new(NoopTextEnhancer),
             clipboard: Arc::new(FakeClipboard),
             paste: Arc::new(FakePaste),
             tray: Arc::new(crate::ports::NullTrayPort),
@@ -999,6 +1002,7 @@ mod tests {
                 events: Arc::clone(&events),
             }),
             stt_client: Arc::new(FakeSttClient),
+            text_enhancer: Arc::new(NoopTextEnhancer),
             clipboard: Arc::new(FakeClipboard),
             paste: Arc::new(FakePaste),
             tray: Arc::new(crate::ports::NullTrayPort),
@@ -1030,6 +1034,7 @@ mod tests {
             trimmer: Arc::new(FakeTrimmer),
             cue_player: Arc::new(FakeCuePlayer),
             stt_client: Arc::new(FakeSttClient),
+            text_enhancer: Arc::new(NoopTextEnhancer),
             clipboard: Arc::new(FakeClipboard),
             paste: Arc::new(FakePaste),
             tray: Arc::new(crate::ports::NullTrayPort),
@@ -1075,6 +1080,7 @@ mod tests {
                 events: Arc::clone(&cue_events),
             }),
             stt_client: stt_client.clone(),
+            text_enhancer: Arc::new(NoopTextEnhancer),
             clipboard: Arc::new(FakeClipboard),
             paste: Arc::new(FakePaste),
             tray: tray.clone(),
@@ -1172,6 +1178,7 @@ mod tests {
             trimmer: Arc::new(FakeTrimmer),
             cue_player: Arc::new(FakeCuePlayer),
             stt_client: Arc::new(FakeSttClient),
+            text_enhancer: Arc::new(NoopTextEnhancer),
             clipboard: Arc::new(FakeClipboard),
             paste: Arc::new(FakePaste),
             tray: Arc::new(crate::ports::NullTrayPort),
@@ -1206,6 +1213,7 @@ mod tests {
             trimmer: Arc::new(FakeTrimmer),
             cue_player: Arc::new(FakeCuePlayer),
             stt_client: Arc::new(FakeSttClient),
+            text_enhancer: Arc::new(NoopTextEnhancer),
             clipboard: Arc::new(FakeClipboard),
             paste: Arc::new(FakePaste),
             tray: tray.clone(),
@@ -1261,6 +1269,7 @@ mod tests {
             trimmer: Arc::new(FakeTrimmer),
             cue_player: Arc::new(FakeCuePlayer),
             stt_client: Arc::new(FakeSttClient),
+            text_enhancer: Arc::new(NoopTextEnhancer),
             clipboard: Arc::new(FakeClipboard),
             paste: Arc::new(FakePaste),
             tray: tray.clone(),
@@ -1315,6 +1324,7 @@ mod tests {
             trimmer: Arc::new(FakeTrimmer),
             cue_player: Arc::new(FakeCuePlayer),
             stt_client: Arc::new(FakeSttClient),
+            text_enhancer: Arc::new(NoopTextEnhancer),
             clipboard: Arc::new(FakeClipboard),
             paste: Arc::new(FakePaste),
             tray: Arc::new(crate::ports::NullTrayPort),
@@ -1361,6 +1371,7 @@ mod tests {
             trimmer: Arc::new(FakeTrimmer),
             cue_player: Arc::new(FakeCuePlayer),
             stt_client: Arc::new(FakeSttClient),
+            text_enhancer: Arc::new(NoopTextEnhancer),
             clipboard: Arc::new(FakeClipboard),
             paste: Arc::new(FakePaste),
             tray: Arc::new(crate::ports::NullTrayPort),

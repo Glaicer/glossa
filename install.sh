@@ -613,6 +613,12 @@ base_url = "${provider_base_url}"
 model = "${provider_model}"
 api_key = "${provider_api_key}"
 
+[LLM]
+enabled = false
+base_url = ""
+model = ""
+api_key = ""
+
 [audio]
 work_dir = "auto"
 format = "wav"
@@ -781,6 +787,7 @@ print_final_summary() {
   run_doctor
   log
   log "You can change the configuration at ${CONFIG_PATH}"
+  log "To enable AI cleaner and enhancer for the transcibed text visit Settings and configure LLM Enhancer model, provider and API key"
 
   if (( manual_provider_setup == 1 )); then
     log "Edit the provider settings first, then start Glossa with: systemctl --user start glossa.service"

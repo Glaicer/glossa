@@ -14,6 +14,10 @@ pub(super) struct SettingsValues {
     pub(super) provider_base_url: String,
     pub(super) provider_model: String,
     pub(super) provider_api_key: String,
+    pub(super) llm_enabled: bool,
+    pub(super) llm_base_url: String,
+    pub(super) llm_model: String,
+    pub(super) llm_api_key: String,
     pub(super) paste_mode: PasteMode,
     pub(super) append_space: bool,
     pub(super) latency_mode: LatencyMode,
@@ -31,6 +35,10 @@ impl SettingsValues {
             provider_base_url: config.provider.base_url.clone().unwrap_or_default(),
             provider_model: config.provider.model.clone(),
             provider_api_key: String::from(config.provider.api_key.clone()),
+            llm_enabled: config.llm.enabled,
+            llm_base_url: config.llm.base_url.clone(),
+            llm_model: config.llm.model.clone(),
+            llm_api_key: String::from(config.llm.api_key.clone()),
             paste_mode: config.paste.mode,
             append_space: config.paste.append_space,
             latency_mode: config.audio.latency_mode,
@@ -78,6 +86,7 @@ pub(super) fn apply_settings_to_config(
     }
 
     maybe_insert_missing_supported_keys(current_section, &updates, &mut seen, &mut updated);
+    insert_missing_supported_sections(&updates, &mut seen, &mut updated);
 
     let missing: Vec<String> = updates
         .iter()
@@ -138,7 +147,53 @@ fn is_supported_missing_key(update: &SettingUpdate) -> bool {
         ("audio", "latency_mode")
             | ("audio", "keepalive_after_stop_seconds")
             | ("paste", "append_space")
+            | ("LLM", "enabled")
+            | ("LLM", "base_url")
+            | ("LLM", "model")
+            | ("LLM", "api_key")
     )
+}
+
+fn insert_missing_supported_sections(
+    updates: &[SettingUpdate],
+    seen: &mut BTreeSet<(&'static str, &'static str)>,
+    updated: &mut String,
+) {
+    insert_missing_section("LLM", updates, seen, updated);
+}
+
+fn insert_missing_section(
+    section: &'static str,
+    updates: &[SettingUpdate],
+    seen: &mut BTreeSet<(&'static str, &'static str)>,
+    updated: &mut String,
+) {
+    let section_updates: Vec<&SettingUpdate> = updates
+        .iter()
+        .filter(|update| update.section == section)
+        .collect();
+    if section_updates.is_empty()
+        || section_updates
+            .iter()
+            .any(|update| seen.contains(&(update.section, update.key)))
+    {
+        return;
+    }
+
+    if !updated.is_empty() {
+        if !updated.ends_with('\n') {
+            updated.push('\n');
+        }
+        if !updated.ends_with("\n\n") {
+            updated.push('\n');
+        }
+    }
+    updated.push('[');
+    updated.push_str(section);
+    updated.push_str("]\n");
+    for update in section_updates {
+        insert_missing_setting(update, seen, updated);
+    }
 }
 
 fn take_trailing_blank_lines(updated: &mut String) -> String {
@@ -268,8 +323,8 @@ pub(super) fn parse_ui_theme(value: &str) -> Option<UiTheme> {
     }
 }
 
-fn build_updates(settings: &SettingsValues) -> [SettingUpdate; 12] {
-    [
+fn build_updates(settings: &SettingsValues) -> Vec<SettingUpdate> {
+    vec![
         SettingUpdate::new(
             "input",
             "backend",
@@ -285,6 +340,10 @@ fn build_updates(settings: &SettingsValues) -> [SettingUpdate; 12] {
         SettingUpdate::new("provider", "base_url", quoted(&settings.provider_base_url)),
         SettingUpdate::new("provider", "model", quoted(&settings.provider_model)),
         SettingUpdate::new("provider", "api_key", quoted(&settings.provider_api_key)),
+        SettingUpdate::new("LLM", "enabled", settings.llm_enabled.to_string()),
+        SettingUpdate::new("LLM", "base_url", quoted(&settings.llm_base_url)),
+        SettingUpdate::new("LLM", "model", quoted(&settings.llm_model)),
+        SettingUpdate::new("LLM", "api_key", quoted(&settings.llm_api_key)),
         SettingUpdate::new(
             "audio",
             "latency_mode",
@@ -477,6 +536,12 @@ stop_sound = "/tmp/stop.wav"
 level = "info"
 journal = true
 file = false
+
+[LLM]
+enabled = false
+base_url = ""
+model = ""
+api_key = ""
 "#
         .into()
     }
@@ -490,6 +555,10 @@ file = false
             provider_base_url: "https://example.com/v1".into(),
             provider_model: "custom-model".into(),
             provider_api_key: "env:CUSTOM_KEY".into(),
+            llm_enabled: true,
+            llm_base_url: "https://llm.example.com/v1".into(),
+            llm_model: "custom-llm".into(),
+            llm_api_key: "env:LLM_KEY".into(),
             paste_mode: PasteMode::ShiftInsert,
             append_space: true,
             latency_mode: LatencyMode::Instant,
@@ -555,6 +624,12 @@ stop_sound = "/tmp/stop.wav"
 level = "info"
 journal = true
 file = false
+
+[LLM]
+enabled = true
+base_url = "https://llm.example.com/v1"
+model = "custom-llm"
+api_key = "env:LLM_KEY"
 "#;
 
         assert_eq!(updated, expected);
@@ -630,6 +705,12 @@ stop_sound = "/tmp/stop.wav"
 level = "info"
 journal = true
 file = false
+
+[LLM]
+enabled = true
+base_url = "https://llm.example.com/v1"
+model = "custom-llm"
+api_key = "env:LLM_KEY"
 "#;
 
         assert_eq!(updated, expected);
@@ -696,9 +777,41 @@ stop_sound = "/tmp/stop.wav"
 level = "info"
 journal = true
 file = false
+
+[LLM]
+enabled = true
+base_url = "https://llm.example.com/v1"
+model = "custom-llm"
+api_key = "env:LLM_KEY"
 "#;
 
         assert_eq!(updated, expected);
+    }
+
+    #[test]
+    fn apply_settings_to_config_should_insert_missing_llm_section() {
+        let source = valid_config_source().replace(
+            r#"
+[LLM]
+enabled = false
+base_url = ""
+model = ""
+api_key = ""
+"#,
+            "",
+        );
+
+        let updated = apply_settings_to_config(&source, &updated_settings())
+            .expect("missing LLM section should be inserted");
+
+        assert!(updated.contains(
+            r#"[LLM]
+enabled = true
+base_url = "https://llm.example.com/v1"
+model = "custom-llm"
+api_key = "env:LLM_KEY"
+"#
+        ));
     }
 
     #[test]

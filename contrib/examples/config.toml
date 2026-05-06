@@ -20,6 +20,16 @@ model = "whisper-large-v3-turbo"
 # Sets the API key source or literal secret; options: "env:VARIABLE_NAME" or an explicit API key string.
 api_key = "env:GROQ_API_KEY"
 
+[LLM]
+# Enables LLM post-processing for transcribed text before pasting; options: true, false.
+enabled = false
+# Sets the OpenAI-compatible chat completions base URL used for text enhancement.
+base_url = ""
+# Sets the chat model alias used for text enhancement.
+model = ""
+# Sets the LLM API key source or literal secret; options: "env:VARIABLE_NAME", an explicit API key string, or "" for local providers.
+api_key = ""
+
 [audio]
 # Enables the recording start/stop cue sounds; options: true, false.
 enabled = true

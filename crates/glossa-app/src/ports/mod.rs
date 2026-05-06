@@ -6,6 +6,7 @@ mod paste_backend;
 mod silence_trimmer;
 mod stt_client;
 mod temp_store;
+mod text_enhancer;
 mod tray;
 
 pub use self::audio_capture::{ActiveRecording, AudioCapture};
@@ -16,4 +17,5 @@ pub use self::paste_backend::PasteBackend;
 pub use self::silence_trimmer::SilenceTrimmer;
 pub use self::stt_client::SttClient;
 pub use self::temp_store::TempStore;
+pub use self::text_enhancer::{NoopTextEnhancer, TextEnhancer};
 pub use self::tray::{NullTrayPort, TrayPort, TrayState};

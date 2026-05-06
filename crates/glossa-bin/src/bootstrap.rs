@@ -12,7 +12,7 @@ use glossa_platform_linux::{
     clipboard::WlCopyClipboard, paste::DotoolPasteBackend, temp::XdgTempStore,
     tray::BestEffortTrayPort,
 };
-use glossa_stt::build_client;
+use glossa_stt::{build_client, build_text_enhancer};
 
 /// Loads the Glossa config from disk and validates it.
 pub async fn load_config(path: &PathBuf) -> anyhow::Result<AppConfig> {
@@ -68,6 +68,7 @@ pub fn build_actor(
             config.ui.stop_sound.clone(),
         )),
         stt_client: build_client(&config)?,
+        text_enhancer: build_text_enhancer(&config)?,
         clipboard: Arc::new(WlCopyClipboard::new(config.paste.clipboard_command.clone())),
         paste: Arc::new(DotoolPasteBackend::new(config.paste.type_command.clone())),
         tray,

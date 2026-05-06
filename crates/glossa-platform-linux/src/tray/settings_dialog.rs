@@ -33,6 +33,13 @@ const LATENCY_MODE_TOOLTIP: &str =
 const KEEPALIVE_AFTER_STOP_SECONDS_TOOLTIP: &str =
     "Sets how many seconds balanced mode keeps the microphone stream warm after recording stops.";
 const UI_THEME_TOOLTIP: &str = "Selects which tray icon set to use. Options: dark or light.";
+const LLM_ENHANCER_TOOLTIP: &str = "Opens LLM enhancer settings.";
+const LLM_ENABLED_TOOLTIP: &str =
+    "Enables LLM post-processing for transcribed text before pasting.";
+const LLM_BASE_URL_TOOLTIP: &str = "Sets the OpenAI-compatible chat completions base URL.";
+const LLM_MODEL_TOOLTIP: &str = "Sets the chat model alias used for text enhancement.";
+const LLM_API_KEY_TOOLTIP: &str =
+    "Sets the LLM API key source or literal secret. Values such as env:VAR are supported.";
 
 pub(super) fn edit_settings(current: &SettingsValues) -> Result<Option<SettingsValues>, AppError> {
     let dialog = Dialog::with_buttons(
@@ -40,6 +47,7 @@ pub(super) fn edit_settings(current: &SettingsValues) -> Result<Option<SettingsV
         None::<&Window>,
         DialogFlags::MODAL,
         &[
+            ("LLM enhancer", ResponseType::Help),
             ("Cancel", ResponseType::Cancel),
             ("Save", ResponseType::Accept),
         ],
@@ -49,6 +57,9 @@ pub(super) fn edit_settings(current: &SettingsValues) -> Result<Option<SettingsV
     dialog.set_keep_above(true);
     dialog.set_default_response(ResponseType::Accept);
     apply_response_button_spacing(&dialog);
+    if let Some(button) = dialog.widget_for_response(ResponseType::Help) {
+        button.set_tooltip_text(Some(LLM_ENHANCER_TOOLTIP));
+    }
 
     let content = dialog.content_area();
     let container = GtkBox::new(Orientation::Vertical, 12);
@@ -195,30 +206,108 @@ pub(super) fn edit_settings(current: &SettingsValues) -> Result<Option<SettingsV
     dialog.show_all();
     dialog.present();
 
-    let response = dialog.run();
-    let result = if response == ResponseType::Accept {
-        Some(SettingsValues {
-            input_backend: parse_input_backend(&selected_id(&backend_combo, "input backend")?)
-                .ok_or_else(|| AppError::message("input backend selection is invalid"))?,
-            input_mode: parse_input_mode(&selected_id(&mode_combo, "input mode")?)
-                .ok_or_else(|| AppError::message("input mode selection is invalid"))?,
-            enable_cli: enable_cli.is_active(),
-            provider_kind: parse_provider_kind(&selected_id(&provider_kind, "provider kind")?)
-                .ok_or_else(|| AppError::message("provider kind selection is invalid"))?,
-            provider_base_url: base_url.text().to_string(),
-            provider_model: model.text().to_string(),
-            provider_api_key: api_key.text().to_string(),
-            paste_mode: parse_paste_mode(&selected_id(&paste_mode, "paste mode")?)
-                .ok_or_else(|| AppError::message("paste mode selection is invalid"))?,
-            append_space: append_space.is_active(),
-            latency_mode: parse_latency_mode(&selected_id(&latency_mode, "latency mode")?)
-                .ok_or_else(|| AppError::message("latency mode selection is invalid"))?,
-            keepalive_after_stop_seconds: parse_keepalive_seconds(
-                keepalive_after_stop_seconds.text().as_str(),
-            )?,
-            ui_theme: parse_ui_theme(&selected_id(&theme, "UI theme")?)
-                .ok_or_else(|| AppError::message("UI theme selection is invalid"))?,
-        })
+    let result = loop {
+        match dialog.run() {
+            ResponseType::Accept => {
+                break Some(SettingsValues {
+                    input_backend: parse_input_backend(&selected_id(
+                        &backend_combo,
+                        "input backend",
+                    )?)
+                    .ok_or_else(|| AppError::message("input backend selection is invalid"))?,
+                    input_mode: parse_input_mode(&selected_id(&mode_combo, "input mode")?)
+                        .ok_or_else(|| AppError::message("input mode selection is invalid"))?,
+                    enable_cli: enable_cli.is_active(),
+                    provider_kind: parse_provider_kind(&selected_id(
+                        &provider_kind,
+                        "provider kind",
+                    )?)
+                    .ok_or_else(|| AppError::message("provider kind selection is invalid"))?,
+                    provider_base_url: base_url.text().to_string(),
+                    provider_model: model.text().to_string(),
+                    provider_api_key: api_key.text().to_string(),
+                    llm_enabled: current.llm_enabled,
+                    llm_base_url: current.llm_base_url.clone(),
+                    llm_model: current.llm_model.clone(),
+                    llm_api_key: current.llm_api_key.clone(),
+                    paste_mode: parse_paste_mode(&selected_id(&paste_mode, "paste mode")?)
+                        .ok_or_else(|| AppError::message("paste mode selection is invalid"))?,
+                    append_space: append_space.is_active(),
+                    latency_mode: parse_latency_mode(&selected_id(&latency_mode, "latency mode")?)
+                        .ok_or_else(|| AppError::message("latency mode selection is invalid"))?,
+                    keepalive_after_stop_seconds: parse_keepalive_seconds(
+                        keepalive_after_stop_seconds.text().as_str(),
+                    )?,
+                    ui_theme: parse_ui_theme(&selected_id(&theme, "UI theme")?)
+                        .ok_or_else(|| AppError::message("UI theme selection is invalid"))?,
+                });
+            }
+            ResponseType::Help => {
+                if let Some(settings) = edit_llm_settings(current)? {
+                    break Some(settings);
+                }
+            }
+            _ => break None,
+        }
+    };
+
+    dialog.close();
+    Ok(result)
+}
+
+fn edit_llm_settings(current: &SettingsValues) -> Result<Option<SettingsValues>, AppError> {
+    let dialog = Dialog::with_buttons(
+        Some("LLM Enhancer Settings"),
+        None::<&Window>,
+        DialogFlags::MODAL,
+        &[
+            ("Cancel", ResponseType::Cancel),
+            ("Save", ResponseType::Accept),
+        ],
+    );
+    dialog.set_default_size(520, 260);
+    dialog.set_resizable(false);
+    dialog.set_keep_above(true);
+    dialog.set_default_response(ResponseType::Accept);
+    apply_response_button_spacing(&dialog);
+
+    let content = dialog.content_area();
+    let container = GtkBox::new(Orientation::Vertical, 12);
+    container.set_margin_top(12);
+    container.set_margin_bottom(12);
+    container.set_margin_start(12);
+    container.set_margin_end(12);
+
+    let llm_grid = create_section_grid();
+    let llm_enabled = CheckButton::new();
+    llm_enabled.set_active(current.llm_enabled);
+    llm_enabled.set_tooltip_text(Some(LLM_ENABLED_TOOLTIP));
+    attach_row(&llm_grid, 0, "Enabled", LLM_ENABLED_TOOLTIP, &llm_enabled);
+    let llm_base_url = create_entry(&current.llm_base_url, LLM_BASE_URL_TOOLTIP, false);
+    attach_row(
+        &llm_grid,
+        1,
+        "Base URL",
+        LLM_BASE_URL_TOOLTIP,
+        &llm_base_url,
+    );
+    let llm_model = create_entry(&current.llm_model, LLM_MODEL_TOOLTIP, false);
+    attach_row(&llm_grid, 2, "Model alias", LLM_MODEL_TOOLTIP, &llm_model);
+    let llm_api_key = create_entry(&current.llm_api_key, LLM_API_KEY_TOOLTIP, true);
+    attach_row(&llm_grid, 3, "API Key", LLM_API_KEY_TOOLTIP, &llm_api_key);
+
+    container.pack_start(&wrap_section("LLM enhancer", &llm_grid), false, false, 0);
+    content.pack_start(&container, true, true, 0);
+    dialog.show_all();
+    dialog.present();
+
+    let result = if dialog.run() == ResponseType::Accept {
+        let mut settings = current.clone();
+        settings.llm_enabled = llm_enabled.is_active();
+        settings.llm_base_url = llm_base_url.text().to_string();
+        settings.llm_model = llm_model.text().to_string();
+        settings.llm_api_key = llm_api_key.text().to_string();
+        Some(settings)
     } else {
         None
     };
@@ -287,7 +376,11 @@ fn attach_row<W: IsA<Widget>>(grid: &Grid, row: i32, label_text: &str, tooltip: 
 }
 
 fn apply_response_button_spacing(dialog: &Dialog) {
-    for response in [ResponseType::Cancel, ResponseType::Accept] {
+    for response in [
+        ResponseType::Help,
+        ResponseType::Cancel,
+        ResponseType::Accept,
+    ] {
         if let Some(button) = dialog.widget_for_response(response) {
             button.set_margin_top(8);
             button.set_margin_bottom(4);

@@ -308,6 +308,8 @@ struct TrayRuntime {
     update_id: tray_icon::menu::MenuId,
     mic_stream_id: tray_icon::menu::MenuId,
     mic_stream_item: CheckMenuItem,
+    llm_enhancer_id: tray_icon::menu::MenuId,
+    llm_enhancer_item: CheckMenuItem,
     exit_id: tray_icon::menu::MenuId,
     icons: TrayIcons,
     shortcut_binding: RefCell<Option<ShortcutBindingConfig>>,
@@ -336,6 +338,9 @@ impl TrayRuntime {
         let version_item = MenuItem::new(&tray_version_label(), false, None);
         let mic_stream_item = CheckMenuItem::new(&mic_stream_label(false), true, false, None);
         let mic_stream_id = mic_stream_item.id().clone();
+        let llm_enhancer_item =
+            CheckMenuItem::new("AI enhancer", true, settings.llm_enabled, None);
+        let llm_enhancer_id = llm_enhancer_item.id().clone();
         let exit_item = MenuItem::new("Exit", true, None);
         let exit_id = exit_item.id().clone();
 
@@ -349,6 +354,8 @@ impl TrayRuntime {
         menu.append(&update_item)
             .map_err(|error| format!("failed to build tray menu: {error}"))?;
         menu.append(&mic_stream_item)
+            .map_err(|error| format!("failed to build tray menu: {error}"))?;
+        menu.append(&llm_enhancer_item)
             .map_err(|error| format!("failed to build tray menu: {error}"))?;
         menu.append(&version_item)
             .map_err(|error| format!("failed to build tray menu: {error}"))?;
@@ -369,6 +376,8 @@ impl TrayRuntime {
             update_id,
             mic_stream_id,
             mic_stream_item,
+            llm_enhancer_id,
+            llm_enhancer_item,
             exit_id,
             icons,
             shortcut_binding: RefCell::new(shortcut_binding),
@@ -427,6 +436,11 @@ impl TrayRuntime {
                 continue;
             }
 
+            if event.id == self.llm_enhancer_id {
+                self.handle_llm_enhancer_toggle();
+                continue;
+            }
+
             if event.id != self.exit_id {
                 continue;
             }
@@ -454,6 +468,38 @@ impl TrayRuntime {
 
         if let Err(error) = self.send_app_command(command) {
             warn!(error = %error, "failed to send input stream command from tray");
+        }
+    }
+
+    fn handle_llm_enhancer_toggle(&self) {
+        let enabled = self.llm_enhancer_item.is_checked();
+        let mut settings = self.settings.borrow().clone();
+        settings.llm_enabled = enabled;
+
+        if let Err(error) = write_settings_to_config(&self.config_path, &settings) {
+            warn!(
+                error = %error,
+                path = %self.config_path.display(),
+                "failed to save LLM enhancer setting from tray"
+            );
+            let previous = self.settings.borrow().llm_enabled;
+            self.llm_enhancer_item.set_checked(previous);
+            let _ = show_message_dialog("LLM enhancer", &error.to_string(), MessageType::Error);
+            return;
+        }
+
+        *self.settings.borrow_mut() = settings;
+        self.llm_enhancer_item.set_checked(enabled);
+
+        if let Err(error) = restart_glossa_service() {
+            warn!(error = %error, "failed to restart glossa service after toggling LLM enhancer");
+            let _ = show_message_dialog(
+                "LLM enhancer",
+                &format!(
+                    "The LLM enhancer setting was saved, but `systemctl --user restart glossa` failed.\n\n{error}"
+                ),
+                MessageType::Warning,
+            );
         }
     }
 

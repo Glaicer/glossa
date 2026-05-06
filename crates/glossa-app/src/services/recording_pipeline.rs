@@ -6,7 +6,7 @@ use tracing::{info, warn};
 use glossa_core::{AppConfig, CapturedAudio, SessionId};
 
 use crate::{
-    ports::{ClipboardWriter, PasteBackend, SilenceTrimmer, SttClient, TempStore},
+    ports::{ClipboardWriter, PasteBackend, SilenceTrimmer, SttClient, TempStore, TextEnhancer},
     AppError,
 };
 
@@ -42,6 +42,7 @@ pub struct PipelineDependencies {
     pub config: Arc<AppConfig>,
     pub trimmer: Arc<dyn SilenceTrimmer>,
     pub stt_client: Arc<dyn SttClient>,
+    pub text_enhancer: Arc<dyn TextEnhancer>,
     pub clipboard: Arc<dyn ClipboardWriter>,
     pub paste: Arc<dyn PasteBackend>,
     pub temp_store: Arc<dyn TempStore>,
@@ -106,10 +107,43 @@ pub fn spawn_processing_task(
                         text = %normalized,
                         "transcription completed"
                     );
-                    let _ = tx.send(InternalEvent::ProcessingReady {
-                        session_id,
-                        text: normalized,
-                    });
+                    if deps.config.llm.enabled {
+                        info!(%session_id, enhancer = deps.text_enhancer.name(), "starting text enhancement");
+                        match deps.text_enhancer.enhance(&normalized).await {
+                            Ok(enhanced) => {
+                                let enhanced_normalized = enhanced.trim().replace("\r\n", "\n");
+                                if enhanced_normalized.is_empty() {
+                                    let _ = deps.temp_store.cleanup_session(session_id).await;
+                                    let _ = tx.send(InternalEvent::ProcessingFinished {
+                                        session_id,
+                                        outcome: CycleOutcome::Failed(
+                                            "LLM enhancement returned empty text".into(),
+                                        ),
+                                    });
+                                } else {
+                                    info!(%session_id, "text enhancement completed");
+                                    let _ = tx.send(InternalEvent::ProcessingReady {
+                                        session_id,
+                                        text: enhanced_normalized,
+                                    });
+                                }
+                            }
+                            Err(error) => {
+                                let _ = deps.temp_store.cleanup_session(session_id).await;
+                                let _ = tx.send(InternalEvent::ProcessingFinished {
+                                    session_id,
+                                    outcome: CycleOutcome::Failed(format!(
+                                        "LLM enhancement failed: {error}"
+                                    )),
+                                });
+                            }
+                        }
+                    } else {
+                        let _ = tx.send(InternalEvent::ProcessingReady {
+                            session_id,
+                            text: normalized,
+                        });
+                    }
                 }
             }
             Err(error) => {
@@ -184,9 +218,13 @@ mod tests {
 
     use glossa_core::{AudioFormat, CapturedAudio, PasteMode, SessionId};
 
-    use super::{paste_cycle, CycleOutcome, PipelineDependencies};
+    use super::{
+        paste_cycle, spawn_processing_task, CycleOutcome, InternalEvent, PipelineDependencies,
+    };
     use crate::{
-        ports::{ClipboardWriter, PasteBackend, SilenceTrimmer, SttClient, TempStore},
+        ports::{
+            ClipboardWriter, PasteBackend, SilenceTrimmer, SttClient, TempStore, TextEnhancer,
+        },
         AppError,
     };
 
@@ -305,6 +343,7 @@ mod tests {
                 config: Arc::new(config),
                 trimmer: Arc::new(NoopTrimmer),
                 stt_client: Arc::new(NoopSttClient),
+                text_enhancer: Arc::new(crate::ports::NoopTextEnhancer),
                 clipboard: clipboard.clone(),
                 paste: paste.clone(),
                 temp_store: Arc::new(NoopTempStore),
@@ -340,5 +379,181 @@ mod tests {
         assert!(matches!(outcome, CycleOutcome::Completed));
         assert_eq!(clipboard.recorded(), vec!["hello".to_owned()]);
         assert_eq!(paste.recorded(), vec![PasteMode::CtrlV]);
+    }
+
+    struct RecordingTextEnhancer {
+        calls: Mutex<Vec<String>>,
+        result: Mutex<Result<String, String>>,
+    }
+
+    impl RecordingTextEnhancer {
+        fn new(result: Result<String, String>) -> Self {
+            Self {
+                calls: Mutex::new(Vec::new()),
+                result: Mutex::new(result),
+            }
+        }
+
+        fn recorded(&self) -> Vec<String> {
+            self.calls.lock().expect("enhancer lock").clone()
+        }
+    }
+
+    #[async_trait]
+    impl TextEnhancer for RecordingTextEnhancer {
+        fn name(&self) -> &'static str {
+            "test-enhancer"
+        }
+
+        async fn enhance(&self, text: &str) -> Result<String, AppError> {
+            self.calls
+                .lock()
+                .expect("enhancer lock")
+                .push(text.to_owned());
+            let result = self.result.lock().expect("enhancer lock").clone();
+            result.map_err(AppError::message)
+        }
+    }
+
+    struct FixedSttClient {
+        text: String,
+    }
+
+    #[async_trait]
+    impl SttClient for FixedSttClient {
+        fn provider_name(&self) -> &'static str {
+            "test"
+        }
+
+        async fn transcribe(&self, _audio: &CapturedAudio) -> Result<String, AppError> {
+            Ok(self.text.clone())
+        }
+    }
+
+    fn processing_dependencies(
+        llm_enabled: bool,
+        stt_text: String,
+        enhancer_result: Result<String, String>,
+    ) -> (PipelineDependencies, Arc<RecordingTextEnhancer>) {
+        let mut config = glossa_core::AppConfig::default();
+        config.llm.enabled = llm_enabled;
+        let enhancer = Arc::new(RecordingTextEnhancer::new(enhancer_result));
+
+        (
+            PipelineDependencies {
+                config: Arc::new(config),
+                trimmer: Arc::new(NoopTrimmer),
+                stt_client: Arc::new(FixedSttClient { text: stt_text }),
+                text_enhancer: enhancer.clone(),
+                clipboard: Arc::new(RecordingClipboard::new()),
+                paste: Arc::new(RecordingPaste::new()),
+                temp_store: Arc::new(NoopTempStore),
+            },
+            enhancer,
+        )
+    }
+
+    #[tokio::test]
+    async fn processing_task_should_enhance_text_when_llm_enabled() {
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let (deps, enhancer) =
+            processing_dependencies(true, "hello world".into(), Ok("Hello, world!".into()));
+        let audio = CapturedAudio {
+            session_id: SessionId::new(),
+            path: Utf8PathBuf::from("/tmp/test.wav"),
+            duration_ms: 1000,
+            sample_rate_hz: 16000,
+            channels: 1,
+        };
+
+        spawn_processing_task(tx, deps, audio);
+
+        let event = rx.recv().await.expect("should receive event");
+        match event {
+            InternalEvent::ProcessingReady { text, .. } => {
+                assert_eq!(text, "Hello, world!");
+            }
+            other => panic!("expected ProcessingReady, got {other:?}"),
+        }
+        assert_eq!(enhancer.recorded(), vec!["hello world"]);
+    }
+
+    #[tokio::test]
+    async fn processing_task_should_skip_enhancement_when_llm_disabled() {
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let (deps, enhancer) =
+            processing_dependencies(false, "hello world".into(), Ok("Hello, world!".into()));
+        let audio = CapturedAudio {
+            session_id: SessionId::new(),
+            path: Utf8PathBuf::from("/tmp/test.wav"),
+            duration_ms: 1000,
+            sample_rate_hz: 16000,
+            channels: 1,
+        };
+
+        spawn_processing_task(tx, deps, audio);
+
+        let event = rx.recv().await.expect("should receive event");
+        match event {
+            InternalEvent::ProcessingReady { text, .. } => {
+                assert_eq!(text, "hello world");
+            }
+            other => panic!("expected ProcessingReady, got {other:?}"),
+        }
+        assert!(enhancer.recorded().is_empty());
+    }
+
+    #[tokio::test]
+    async fn processing_task_should_fail_when_enhancer_returns_empty() {
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let (deps, _enhancer) =
+            processing_dependencies(true, "hello world".into(), Ok("   ".into()));
+        let audio = CapturedAudio {
+            session_id: SessionId::new(),
+            path: Utf8PathBuf::from("/tmp/test.wav"),
+            duration_ms: 1000,
+            sample_rate_hz: 16000,
+            channels: 1,
+        };
+
+        spawn_processing_task(tx, deps, audio);
+
+        let event = rx.recv().await.expect("should receive event");
+        match event {
+            InternalEvent::ProcessingFinished { outcome, .. } => match outcome {
+                CycleOutcome::Failed(msg) => {
+                    assert!(msg.contains("empty text"));
+                }
+                other => panic!("expected Failed, got {other:?}"),
+            },
+            other => panic!("expected ProcessingFinished, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn processing_task_should_fail_when_enhancer_errors() {
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let (deps, _enhancer) =
+            processing_dependencies(true, "hello world".into(), Err("network error".into()));
+        let audio = CapturedAudio {
+            session_id: SessionId::new(),
+            path: Utf8PathBuf::from("/tmp/test.wav"),
+            duration_ms: 1000,
+            sample_rate_hz: 16000,
+            channels: 1,
+        };
+
+        spawn_processing_task(tx, deps, audio);
+
+        let event = rx.recv().await.expect("should receive event");
+        match event {
+            InternalEvent::ProcessingFinished { outcome, .. } => match outcome {
+                CycleOutcome::Failed(msg) => {
+                    assert!(msg.contains("network error"));
+                }
+                other => panic!("expected Failed, got {other:?}"),
+            },
+            other => panic!("expected ProcessingFinished, got {other:?}"),
+        }
     }
 }
